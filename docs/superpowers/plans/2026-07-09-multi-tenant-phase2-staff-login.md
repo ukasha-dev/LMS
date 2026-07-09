@@ -470,14 +470,20 @@ Create `application/controllers/PilotLogin.php`:
 
 defined('BASEPATH') or exit('No direct script access allowed');
 
-require_once APPPATH . 'core/Tenant_Model.php';
-
 class PilotLogin extends CI_Controller
 {
     public function __construct()
     {
         parent::__construct();
+        // require_once must come AFTER parent::__construct(), not at file
+        // scope before the class declaration. Tenant_Model extends
+        // MY_Model, and MY_Model is only defined as a side effect of CI3's
+        // Loader::model() bootstrap, which parent::__construct() triggers
+        // via the autoloaded Customlib library's constructor. Requiring
+        // Tenant_Model.php any earlier throws "Class MY_Model not found".
+        // Same fix already proven in Phase 1's PilotStudents.php.
         $this->load->database('school_saas_pilot');
+        require_once APPPATH . 'core/Tenant_Model.php';
         $this->load->model('Tenant_Model', 'tenant_model');
         $this->load->library('enc_lib');
     }
