@@ -199,16 +199,33 @@ final class MergeStaffDataTest extends TestCase
         $this->target = new PDO('mysql:host=127.0.0.1;dbname=merge_staff_test_target;charset=utf8mb4', 'root', '');
         $this->target->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
+        // Matches exactly what MergeStaffData::run() selects below, which in
+        // turn matches school_saas's real schema for these tables (see
+        // sql/multitenant/002_add_staff_tables.sql from Task 1) — not just
+        // the handful of columns the assertions happen to check.
         $staffSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, employee_id VARCHAR(200) NOT NULL,'
-            . ' name VARCHAR(200) NOT NULL, email VARCHAR(200) NOT NULL, password VARCHAR(250) NOT NULL';
+            . ' name VARCHAR(200) NOT NULL, surname VARCHAR(200) DEFAULT NULL,'
+            . ' email VARCHAR(200) NOT NULL, password VARCHAR(250) NOT NULL,'
+            . ' gender VARCHAR(50) DEFAULT NULL, image VARCHAR(200) DEFAULT NULL,'
+            . ' is_active INT NOT NULL DEFAULT 1, verification_code VARCHAR(100) DEFAULT NULL,'
+            . ' lang_id INT NOT NULL DEFAULT 0, currency_id INT NOT NULL DEFAULT 0,'
+            . ' created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,'
+            . ' updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP';
         $this->source->exec("CREATE TABLE staff ({$staffSchema})");
         $this->target->exec("CREATE TABLE staff ({$staffSchema}, tenant_id INT NOT NULL)");
 
-        $rolesSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100) NOT NULL';
+        $rolesSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100) DEFAULT NULL,'
+            . ' slug VARCHAR(150) DEFAULT NULL, is_active INT NOT NULL DEFAULT 1,'
+            . ' is_system INT NOT NULL DEFAULT 0, is_superadmin INT NOT NULL DEFAULT 0,'
+            . ' created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,'
+            . ' updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP';
         $this->source->exec("CREATE TABLE roles ({$rolesSchema})");
         $this->target->exec("CREATE TABLE roles ({$rolesSchema}, tenant_id INT NOT NULL)");
 
-        $staffRolesSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, staff_id INT NOT NULL, role_id INT NOT NULL';
+        $staffRolesSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, staff_id INT NOT NULL, role_id INT NOT NULL,'
+            . ' is_active INT NOT NULL DEFAULT 1,'
+            . ' created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,'
+            . ' updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP';
         $this->source->exec("CREATE TABLE staff_roles ({$staffRolesSchema})");
         $this->target->exec("CREATE TABLE staff_roles ({$staffRolesSchema}, tenant_id INT NOT NULL)");
     }
