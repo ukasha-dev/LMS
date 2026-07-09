@@ -99,3 +99,27 @@ made.
 - No phase merges a school's data into `school_saas` without first
   confirming, via automated test, that cross-tenant reads/writes are
   blocked (see `TenantScopeTest` in Phase 1 for the pattern to replicate).
+- All `Pilot*` controllers (`PilotStudents`, `PilotLogin`, `PilotClasses`,
+  ...) are an unauthenticated proof harness — anyone can call
+  `login_as/<any-id>` and select any tenant with data. They must be
+  removed or gated behind a real auth check before Phase 5's cutover;
+  flagged in Stage 2's final review (2026-07-09).
+
+## Carried-forward technical debt
+
+- **Merge-tool triplication** (flagged in Stage 2's final review,
+  2026-07-09): `MergeSchoolData`, `MergeStaffData`, and `MergeClassData`
+  share ~60 near-identical lines each (`nextId()`, `fetchAll()`,
+  `insertRow()`, the transaction/rollback skeleton, the CLI bootstrap) —
+  three occurrences now, past the point where copy-pasting a fourth is
+  easily justified. Stage 3 (`student_session`, a fourth merge tool)
+  should open with extracting the shared mechanism (e.g. an
+  `AbstractTenantMerger` each tool configures with its table graph)
+  before adding a fourth copy.
+- **`class_sections`' FKs are not tenant-composite** (schema:
+  `sql/multitenant/003_add_class_section_tables.sql`): `class_id`/
+  `section_id` reference `classes(id)`/`sections(id)` by id alone, not
+  `(tenant_id, id)`. Safe today with one tenant; once a second tenant
+  exists, nothing at the DB level stops a cross-tenant reference — only
+  the merge tool's own remap logic prevents it. Worth a composite FK
+  before Phase 5 migrates additional schools.
