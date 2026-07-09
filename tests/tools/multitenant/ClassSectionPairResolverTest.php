@@ -79,4 +79,41 @@ final class ClassSectionPairResolverTest extends TestCase
         $this->assertSame(['class_id' => 100, 'section_id' => 200], $map['1:20']);
         $this->assertSame(['class_id' => 102, 'section_id' => 201], $map['3:43']);
     }
+
+    public function testThrowsWhenSourceHasAmbiguousDuplicateClassSectionNames(): void
+    {
+        // Two DIFFERENT class_sections rows on the SOURCE side link the SAME
+        // class to two DIFFERENT section rows that happen to share the same
+        // section name — the resolver cannot know which (class_id, section_id)
+        // pair the name pair "Class 1" / "Green 05" should refer to.
+        $this->source->exec("INSERT INTO classes (id, class) VALUES (1, 'Class 1')");
+        $this->source->exec("INSERT INTO sections (id, section) VALUES (20, 'Green 05'), (43, 'Green 05')");
+        $this->source->exec('INSERT INTO class_sections (class_id, section_id) VALUES (1, 20), (1, 43)');
+
+        $this->target->exec("INSERT INTO classes (id, class, tenant_id) VALUES (100, 'Class 1', 25)");
+        $this->target->exec("INSERT INTO sections (id, section, tenant_id) VALUES (200, 'Green 05', 25)");
+        $this->target->exec('INSERT INTO class_sections (class_id, section_id, tenant_id) VALUES (100, 200, 25)');
+
+        $this->expectException(RuntimeException::class);
+
+        $this->resolver->resolve($this->source, $this->target, 25);
+    }
+
+    public function testThrowsWhenTargetHasAmbiguousDuplicateClassSectionNames(): void
+    {
+        // Same shape as above, but the ambiguity lives on the TARGET side:
+        // two different class_sections rows link the same class to two
+        // different sections that share the same section name.
+        $this->source->exec("INSERT INTO classes (id, class) VALUES (1, 'Class 1')");
+        $this->source->exec("INSERT INTO sections (id, section) VALUES (20, 'Green 05')");
+        $this->source->exec('INSERT INTO class_sections (class_id, section_id) VALUES (1, 20)');
+
+        $this->target->exec("INSERT INTO classes (id, class, tenant_id) VALUES (100, 'Class 1', 25)");
+        $this->target->exec("INSERT INTO sections (id, section, tenant_id) VALUES (200, 'Green 05', 25), (201, 'Green 05', 25)");
+        $this->target->exec('INSERT INTO class_sections (class_id, section_id, tenant_id) VALUES (100, 200, 25), (100, 201, 25)');
+
+        $this->expectException(RuntimeException::class);
+
+        $this->resolver->resolve($this->source, $this->target, 25);
+    }
 }

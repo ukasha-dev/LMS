@@ -857,10 +857,15 @@ it was a modeling mistake in this task's original design, not a resolver bug.
 
 **Fix:** stop resolving `sections` on its own. Resolve the (class, section)
 *pair* jointly through the `class_sections` junction, keyed by
-`(class name, section name)` — that composite IS unique per school, because
-a given class only has one section with a given name, even though the same
-name (and even the same underlying `sections.id`) can and does repeat across
-different classes.
+`(class name, section name)`. In every school's data verified so far
+(including `al_hafeez_campus`), that composite is unique — a given class only
+has one section with a given name — even though the same name (and even the
+same underlying `sections.id`) can and does repeat across different classes.
+**This uniqueness is a data-quality assumption, not something the schema
+enforces**: nothing stops two `class_sections` rows for the same class from
+pointing at two different section rows that happen to share a name. See the
+"Residual-risk hardening" note below for how the resolver now handles that
+case instead of silently trusting the assumption.
 
 - [ ] **Fix Step 1: Add `ClassSectionPairResolver`**
 
@@ -1004,6 +1009,22 @@ final class ClassSectionPairResolverTest extends TestCase
     }
 }
 ```
+
+**Residual-risk hardening (post-review):** code review flagged that the
+"(class name, section name) is unique per school" assumption above is not
+schema-enforced, so a future school with a genuine duplicate — two distinct
+`class_sections` rows for the same class pointing at two different section
+rows that happen to share a name — would hit the exact same silent-collision
+failure mode this fix was built to close, just one level removed (last row
+seen silently wins). `ClassSectionPairResolver::resolve()` now detects this:
+while building the source-side and target-side name-pair maps, if a
+`(class_name, section_name)` key would be assigned to two *different*
+`(class_id, section_id)` pairs, it throws a `RuntimeException` identifying
+the colliding names instead of overwriting. A literal duplicate row (same
+id pair inserted twice) is not ambiguous and does not throw. Tests
+`testThrowsWhenSourceHasAmbiguousDuplicateClassSectionNames` and
+`testThrowsWhenTargetHasAmbiguousDuplicateClassSectionNames` in
+`tests/tools/multitenant/ClassSectionPairResolverTest.php` cover both sides.
 
 - [ ] **Fix Step 3: Rewrite `MergeStudentSessionData::run()` to use the pair resolver**
 

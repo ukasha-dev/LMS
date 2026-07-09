@@ -26,10 +26,31 @@ final class ClassSectionPairResolver
         $targetByNamePair = [];
         foreach ($targetRows as $row) {
             $namePairKey = $row['class_name'] . "\x00" . $row['section_name'];
-            $targetByNamePair[$namePairKey] = [
+            $candidate = [
                 'class_id' => (int) $row['class_id'],
                 'section_id' => (int) $row['section_id'],
             ];
+            if (isset($targetByNamePair[$namePairKey]) && $targetByNamePair[$namePairKey] !== $candidate) {
+                throw new RuntimeException(
+                    "Ambiguous class/section pair: multiple distinct (class_id, section_id) combinations share the name pair \"{$row['class_name']}\" / \"{$row['section_name']}\" — cannot safely resolve. Manual investigation required."
+                );
+            }
+            $targetByNamePair[$namePairKey] = $candidate;
+        }
+
+        $sourceByNamePair = [];
+        foreach ($sourceRows as $row) {
+            $namePairKey = $row['class_name'] . "\x00" . $row['section_name'];
+            $candidate = [
+                'class_id' => (int) $row['class_id'],
+                'section_id' => (int) $row['section_id'],
+            ];
+            if (isset($sourceByNamePair[$namePairKey]) && $sourceByNamePair[$namePairKey] !== $candidate) {
+                throw new RuntimeException(
+                    "Ambiguous class/section pair: multiple distinct (class_id, section_id) combinations share the name pair \"{$row['class_name']}\" / \"{$row['section_name']}\" — cannot safely resolve. Manual investigation required."
+                );
+            }
+            $sourceByNamePair[$namePairKey] = $candidate;
         }
 
         $map = [];
