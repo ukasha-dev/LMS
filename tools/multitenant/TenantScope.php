@@ -11,6 +11,7 @@ final class TenantScope
 
     public function selectAll(string $table, array $where, int $tenantId): array
     {
+        $this->assertValidIdentifier($table);
         [$whereSql, $params] = $this->buildWhere($where, $tenantId);
         $stmt = $this->pdo->prepare("SELECT * FROM `{$table}` WHERE {$whereSql}");
         $stmt->execute($params);
@@ -20,8 +21,12 @@ final class TenantScope
 
     public function insert(string $table, array $data, int $tenantId): int
     {
+        $this->assertValidIdentifier($table);
         $data['tenant_id'] = $tenantId;
         $columns = array_keys($data);
+        foreach ($columns as $column) {
+            $this->assertValidIdentifier($column);
+        }
         $placeholders = array_map(static fn ($c) => ':' . $c, $columns);
 
         $sql = "INSERT INTO `{$table}` (`" . implode('`, `', $columns) . '`) VALUES (' . implode(', ', $placeholders) . ')';
@@ -38,9 +43,13 @@ final class TenantScope
 
     public function update(string $table, array $data, array $where, int $tenantId): int
     {
+        $this->assertValidIdentifier($table);
+        unset($data['tenant_id']);
+
         $setParts = [];
         $setParams = [];
         foreach ($data as $column => $value) {
+            $this->assertValidIdentifier($column);
             $placeholder = ':set_' . $column;
             $setParts[] = "`{$column}` = {$placeholder}";
             $setParams[$placeholder] = $value;
@@ -56,6 +65,7 @@ final class TenantScope
 
     public function delete(string $table, array $where, int $tenantId): int
     {
+        $this->assertValidIdentifier($table);
         [$whereSql, $params] = $this->buildWhere($where, $tenantId);
         $stmt = $this->pdo->prepare("DELETE FROM `{$table}` WHERE {$whereSql}");
         $stmt->execute($params);
@@ -65,6 +75,7 @@ final class TenantScope
 
     public function count(string $table, array $where, int $tenantId): int
     {
+        $this->assertValidIdentifier($table);
         [$whereSql, $params] = $this->buildWhere($where, $tenantId);
         $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM `{$table}` WHERE {$whereSql}");
         $stmt->execute($params);
@@ -78,11 +89,19 @@ final class TenantScope
         $params = [':tenant_id' => $tenantId];
 
         foreach ($where as $column => $value) {
+            $this->assertValidIdentifier($column);
             $placeholder = ':where_' . $column;
             $conditions[] = "`{$column}` = {$placeholder}";
             $params[$placeholder] = $value;
         }
 
         return [implode(' AND ', $conditions), $params];
+    }
+
+    private function assertValidIdentifier(string $identifier): void
+    {
+        if (!preg_match('/^[A-Za-z0-9_]+$/', $identifier)) {
+            throw new InvalidArgumentException("Invalid identifier: {$identifier}");
+        }
     }
 }
