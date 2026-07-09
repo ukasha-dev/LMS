@@ -20,8 +20,22 @@ final class MergeSchoolData
         $studentRemap = new IdRemapper($this->nextId('students'));
         $userRemap = new IdRemapper($this->nextId('users'));
 
-        $students = $this->fetchAll('SELECT * FROM students');
-        $users = $this->fetchAll('SELECT * FROM users');
+        // Explicit column lists, not SELECT *: the source school databases
+        // have the full production schema (~55 columns on students alone,
+        // including a `users.childs` column encoding parent->children as a
+        // CSV of student ids). school_saas's students/users tables are a
+        // deliberately minimal Phase 1 subset (see Task 4). Selecting only
+        // the columns that subset actually has keeps this tool honest about
+        // what it migrates — anything not listed here (childs included) is
+        // explicitly deferred to Phase 2's full-parity schema, not silently
+        // dropped or, worse, inserted unremapped into a column that doesn't
+        // encode the same ids anymore.
+        $students = $this->fetchAll(
+            'SELECT id, parent_id, admission_no, firstname, middlename, lastname, is_active FROM students'
+        );
+        $users = $this->fetchAll(
+            'SELECT id, user_id, username, password, role, is_active, created_at FROM users'
+        );
 
         foreach ($students as $row) {
             $studentRemap->remapId((int) $row['id']);

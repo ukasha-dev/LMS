@@ -21,11 +21,20 @@ final class MergeSchoolDataTest extends TestCase
         $this->target = new PDO('mysql:host=127.0.0.1;dbname=merge_test_target;charset=utf8mb4', 'root', '');
         $this->target->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
-        $studentSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, parent_id INT NOT NULL DEFAULT 0, firstname VARCHAR(100) NOT NULL';
+        // Matches the exact column set MergeSchoolData::run() selects (see
+        // its whitelist SELECT below) and school_saas's real schema (Task
+        // 4) — not just the two columns the assertions happen to check.
+        $studentSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, parent_id INT NOT NULL DEFAULT 0,'
+            . ' admission_no VARCHAR(100) DEFAULT NULL, firstname VARCHAR(100) NOT NULL,'
+            . ' middlename VARCHAR(255) DEFAULT NULL, lastname VARCHAR(100) DEFAULT NULL,'
+            . " is_active VARCHAR(255) DEFAULT 'yes'";
         $this->source->exec("CREATE TABLE students ({$studentSchema})");
         $this->target->exec("CREATE TABLE students ({$studentSchema}, tenant_id INT NOT NULL)");
 
-        $userSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, user_id INT NOT NULL DEFAULT 0, username VARCHAR(50) NOT NULL';
+        $userSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, user_id INT NOT NULL DEFAULT 0,'
+            . ' username VARCHAR(50) NOT NULL, password VARCHAR(255) DEFAULT NULL,'
+            . " role VARCHAR(30) NOT NULL DEFAULT 'parent', is_active VARCHAR(255) DEFAULT 'yes',"
+            . ' created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP';
         $this->source->exec("CREATE TABLE users ({$userSchema})");
         $this->target->exec("CREATE TABLE users ({$userSchema}, tenant_id INT NOT NULL)");
     }
@@ -70,5 +79,44 @@ final class MergeSchoolDataTest extends TestCase
 
         $newStudent = $this->target->query("SELECT * FROM students WHERE firstname = 'Bob'")->fetch(PDO::FETCH_ASSOC);
         $this->assertGreaterThan(500, (int) $newStudent['id']);
+    }
+
+    public function testRollsBackTransactionOnInsertFailure(): void
+    {
+        // Force a genuine mid-transaction failure without racing nextId():
+        // nextId() is queried fresh by run() itself and always returns an
+        // id one past the current MAX, so pre-inserting a "colliding" row
+        // into the target before calling run() only shifts nextId() past
+        // it (that's exactly what testStartsIdsAfterExistingTargetRowsTo-
+        // AvoidCollision proves happens) — it can never reproduce a real
+        // primary-key collision. Instead, add a UNIQUE constraint on the
+        // target's admission_no column only, and give two source students
+        // the same admission_no: the first insert succeeds, the second
+        // throws a duplicate-key PDOException inside the try block, before
+        // the users loop even starts.
+        $this->target->exec('ALTER TABLE students ADD UNIQUE KEY uniq_admission_no (admission_no)');
+
+        $this->source->exec("INSERT INTO users (id, user_id, username) VALUES (1, 0, 'parent1')");
+        $this->source->exec("INSERT INTO students (id, parent_id, admission_no, firstname) VALUES (1, 1, 'DUPE001', 'Alice')");
+        $this->source->exec("INSERT INTO students (id, parent_id, admission_no, firstname) VALUES (2, 1, 'DUPE001', 'Bob')");
+        $this->source->exec('UPDATE users SET user_id = 1 WHERE id = 1');
+
+        $merger = new MergeSchoolData($this->source, $this->target, 25);
+
+        $threw = false;
+        try {
+            $merger->run();
+        } catch (Throwable $e) {
+            $threw = true;
+            $this->assertInstanceOf(PDOException::class, $e);
+        }
+
+        $this->assertTrue($threw, 'Expected run() to throw on duplicate-key insert');
+
+        $studentCount = (int) $this->target->query('SELECT COUNT(*) AS c FROM students')->fetch(PDO::FETCH_ASSOC)['c'];
+        $this->assertSame(0, $studentCount, 'Transaction should have rolled back the already-inserted first student row too');
+
+        $userCount = (int) $this->target->query('SELECT COUNT(*) AS c FROM users')->fetch(PDO::FETCH_ASSOC)['c'];
+        $this->assertSame(0, $userCount, 'Transaction should have rolled back, leaving users table empty');
     }
 }
