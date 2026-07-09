@@ -116,6 +116,25 @@ final class TenantScopeTest extends TestCase
         $this->assertEquals(1, $rows[0]['tenant_id']);
     }
 
+    public function testUpdateCannotReassignRowToAnotherTenantViaCasedKey(): void
+    {
+        $id = $this->scope->insert('widgets', ['name' => 'Original'], 1);
+
+        $affected = $this->scope->update(
+            'widgets',
+            ['TENANT_ID' => 2, 'name' => 'Renamed'],
+            ['id' => $id],
+            1
+        );
+
+        $this->assertSame(1, $affected);
+
+        $rows = $this->scope->selectAll('widgets', [], 1);
+        $this->assertCount(1, $rows);
+        $this->assertSame('Renamed', $rows[0]['name']);
+        $this->assertEquals(1, $rows[0]['tenant_id']);
+    }
+
     public function testInsertRejectsInvalidColumnName(): void
     {
         $this->expectException(InvalidArgumentException::class);

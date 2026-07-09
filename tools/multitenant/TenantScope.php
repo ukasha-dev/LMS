@@ -44,7 +44,11 @@ final class TenantScope
     public function update(string $table, array $data, array $where, int $tenantId): int
     {
         $this->assertValidIdentifier($table);
-        unset($data['tenant_id']);
+        foreach (array_keys($data) as $key) {
+            if (strcasecmp($key, 'tenant_id') === 0) {
+                unset($data[$key]);
+            }
+        }
 
         $setParts = [];
         $setParams = [];
