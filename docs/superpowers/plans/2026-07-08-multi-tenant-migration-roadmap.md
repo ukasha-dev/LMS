@@ -32,13 +32,31 @@ made.
    proven cross-tenant isolation (automated tests) and a working manual
    smoke test through a real (if minimal) controller.
 
-2. **Phase 2 — Retrofit core modules** (not yet planned)
+2. **Phase 2 — Retrofit core modules** (in progress, staged)
    Extend the schema (`tenant_id` + FK) to the next tier of tables that
    most other modules depend on: staff, classes/sections, exams,
    attendance. Migrate the corresponding models off raw `$this->db` calls
-   onto `Tenant_Model`. Wire real login (`Site.php`) to set `tenant_id` in
-   session instead of switching DB connection groups, gated behind a
-   feature flag so only the pilot tenant uses the new path.
+   onto `Tenant_Model`.
+
+   **Login-wiring decision (2026-07-09):** the original wording above
+   ("wire real login via a feature flag in `Site.php`") was revised once
+   `Site.php::login()`'s actual size and blast radius (176 lines, live
+   production auth for all 6 schools, re-evaluated on every login
+   attempt) was inspected up close. Modifying it directly — even gated —
+   means every login for every school runs through touched code, a much
+   bigger risk than anything Phase 1 touched. Instead, Phase 2 proves the
+   real-login mechanism via a new parallel pilot controller (same pattern
+   as Phase 1's `PilotStudents`), and defers actually replacing `Site.php`'s
+   production login path for the pilot tenant to a later stage, once more
+   of the admin panel is proven tenant-safe end to end.
+
+   - **Stage 1 — Staff + real login proof** — plan:
+     `2026-07-09-multi-tenant-phase2-staff-login.md`. Extends `school_saas`
+     with `staff`/`staff_roles`/`roles`; a new `PilotLogin` controller does
+     real credential verification and role resolution against those
+     tables via `Tenant_Model`, without touching `Site.php` or the real
+     admin dashboard.
+   - **Stage 2+ — classes/sections, exams, attendance** — not yet planned.
 
 3. **Phase 3 — Retrofit remaining modules** (not yet planned)
    Fees, payroll, library, transport, hostel, HR, messaging, and the rest
