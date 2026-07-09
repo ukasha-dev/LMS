@@ -1,20 +1,10 @@
 <?php
 
+require_once __DIR__ . '/AbstractTenantMerger.php';
 require_once __DIR__ . '/IdRemapper.php';
 
-final class MergeClassData
+final class MergeClassData extends AbstractTenantMerger
 {
-    private PDO $source;
-    private PDO $target;
-    private int $tenantId;
-
-    public function __construct(PDO $source, PDO $target, int $tenantId)
-    {
-        $this->source = $source;
-        $this->target = $target;
-        $this->tenantId = $tenantId;
-    }
-
     public function run(): array
     {
         $classRemap = new IdRemapper($this->nextId('classes'));
@@ -31,8 +21,7 @@ final class MergeClassData
             $sectionRemap->remapId((int) $row['id']);
         }
 
-        $this->target->beginTransaction();
-        try {
+        $this->inTransaction(function () use ($classes, $sections, $classSections, $classRemap, $sectionRemap) {
             foreach ($classes as $row) {
                 $row['id'] = $classRemap->getMapping((int) $row['id']);
                 $this->insertRow('classes', $row);
@@ -49,45 +38,13 @@ final class MergeClassData
                 $row['section_id'] = $sectionRemap->getMapping((int) $row['section_id']);
                 $this->insertRow('class_sections', $row);
             }
-            $this->target->commit();
-        } catch (Throwable $e) {
-            $this->target->rollBack();
-            throw $e;
-        }
+        });
 
         return [
             'classes_migrated' => count($classes),
             'sections_migrated' => count($sections),
             'class_sections_migrated' => count($classSections),
         ];
-    }
-
-    private function nextId(string $table): int
-    {
-        $stmt = $this->target->query("SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM `{$table}`");
-
-        return (int) $stmt->fetch(PDO::FETCH_ASSOC)['next_id'];
-    }
-
-    private function fetchAll(string $sql): array
-    {
-        return $this->source->query($sql)->fetchAll(PDO::FETCH_ASSOC);
-    }
-
-    private function insertRow(string $table, array $row): void
-    {
-        $row['tenant_id'] = $this->tenantId;
-        $columns = array_keys($row);
-        $placeholders = array_map(static fn ($c) => ':' . $c, $columns);
-
-        $sql = "INSERT INTO `{$table}` (`" . implode('`, `', $columns) . '`) VALUES (' . implode(', ', $placeholders) . ')';
-        $stmt = $this->target->prepare($sql);
-
-        $params = [];
-        foreach ($row as $column => $value) {
-            $params[':' . $column] = $value;
-        }
-        $stmt->execute($params);
     }
 }
 
