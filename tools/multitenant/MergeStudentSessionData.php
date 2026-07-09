@@ -2,15 +2,17 @@
 
 require_once __DIR__ . '/AbstractTenantMerger.php';
 require_once __DIR__ . '/NaturalKeyIdResolver.php';
+require_once __DIR__ . '/ClassSectionPairResolver.php';
 
 final class MergeStudentSessionData extends AbstractTenantMerger
 {
     public function run(): array
     {
-        $resolver = new NaturalKeyIdResolver();
-        $studentMap = $resolver->resolve($this->source, $this->target, $this->tenantId, 'students', 'admission_no');
-        $classMap = $resolver->resolve($this->source, $this->target, $this->tenantId, 'classes', 'class');
-        $sectionMap = $resolver->resolve($this->source, $this->target, $this->tenantId, 'sections', 'section');
+        $studentResolver = new NaturalKeyIdResolver();
+        $studentMap = $studentResolver->resolve($this->source, $this->target, $this->tenantId, 'students', 'admission_no');
+
+        $pairResolver = new ClassSectionPairResolver();
+        $classSectionMap = $pairResolver->resolve($this->source, $this->target, $this->tenantId);
 
         $sourceRows = $this->fetchAll(
             'SELECT student_id, class_id, section_id, is_active, created_at, updated_at FROM student_session'
@@ -19,14 +21,13 @@ final class MergeStudentSessionData extends AbstractTenantMerger
         $rowsToInsert = [];
         foreach ($sourceRows as $row) {
             $oldStudentId = (int) $row['student_id'];
-            $oldClassId = (int) $row['class_id'];
-            $oldSectionId = (int) $row['section_id'];
-            if (!isset($studentMap[$oldStudentId]) || !isset($classMap[$oldClassId]) || !isset($sectionMap[$oldSectionId])) {
+            $oldPairKey = $row['class_id'] . ':' . $row['section_id'];
+            if (!isset($studentMap[$oldStudentId]) || !isset($classSectionMap[$oldPairKey])) {
                 continue;
             }
             $row['student_id'] = $studentMap[$oldStudentId];
-            $row['class_id'] = $classMap[$oldClassId];
-            $row['section_id'] = $sectionMap[$oldSectionId];
+            $row['class_id'] = $classSectionMap[$oldPairKey]['class_id'];
+            $row['section_id'] = $classSectionMap[$oldPairKey]['section_id'];
             $rowsToInsert[] = $row;
         }
 

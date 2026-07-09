@@ -33,6 +33,9 @@ final class MergeStudentSessionDataTest extends TestCase
         $this->target->exec('CREATE TABLE classes (id INT AUTO_INCREMENT PRIMARY KEY, class VARCHAR(60) DEFAULT NULL, tenant_id INT NOT NULL)');
         $this->target->exec('CREATE TABLE sections (id INT AUTO_INCREMENT PRIMARY KEY, section VARCHAR(60) DEFAULT NULL, tenant_id INT NOT NULL)');
         $this->target->exec('CREATE TABLE student_session (id INT AUTO_INCREMENT PRIMARY KEY, student_id INT NOT NULL, class_id INT NOT NULL, section_id INT NOT NULL, is_active VARCHAR(255) DEFAULT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, tenant_id INT NOT NULL)');
+
+        $this->source->exec('CREATE TABLE class_sections (id INT AUTO_INCREMENT PRIMARY KEY, class_id INT NOT NULL, section_id INT NOT NULL)');
+        $this->target->exec('CREATE TABLE class_sections (id INT AUTO_INCREMENT PRIMARY KEY, class_id INT NOT NULL, section_id INT NOT NULL, tenant_id INT NOT NULL)');
     }
 
     protected function tearDown(): void
@@ -51,10 +54,12 @@ final class MergeStudentSessionDataTest extends TestCase
         $this->source->exec("INSERT INTO classes (id, class) VALUES (201, 'Class 1')");
         $this->source->exec("INSERT INTO sections (id, section) VALUES (301, 'A')");
         $this->source->exec("INSERT INTO student_session (student_id, class_id, section_id, is_active) VALUES (101, 201, 301, 'yes')");
+        $this->source->exec('INSERT INTO class_sections (class_id, section_id) VALUES (201, 301)');
 
         $this->target->exec("INSERT INTO students (id, admission_no, tenant_id) VALUES (1, 'ADM-001', 25)");
         $this->target->exec("INSERT INTO classes (id, class, tenant_id) VALUES (2, 'Class 1', 25)");
         $this->target->exec("INSERT INTO sections (id, section, tenant_id) VALUES (3, 'A', 25)");
+        $this->target->exec('INSERT INTO class_sections (class_id, section_id, tenant_id) VALUES (2, 3, 25)');
 
         $merger = new MergeStudentSessionData($this->source, $this->target, 25);
         $result = $merger->run();
@@ -75,9 +80,11 @@ final class MergeStudentSessionDataTest extends TestCase
         // student_id 999 has no corresponding students row at all (and
         // definitely no match in target) — simulates a dangling reference.
         $this->source->exec("INSERT INTO student_session (student_id, class_id, section_id, is_active) VALUES (999, 201, 301, 'yes')");
+        $this->source->exec('INSERT INTO class_sections (class_id, section_id) VALUES (201, 301)');
 
         $this->target->exec("INSERT INTO classes (id, class, tenant_id) VALUES (2, 'Class 1', 25)");
         $this->target->exec("INSERT INTO sections (id, section, tenant_id) VALUES (3, 'A', 25)");
+        $this->target->exec('INSERT INTO class_sections (class_id, section_id, tenant_id) VALUES (2, 3, 25)');
 
         $merger = new MergeStudentSessionData($this->source, $this->target, 25);
         $result = $merger->run();
