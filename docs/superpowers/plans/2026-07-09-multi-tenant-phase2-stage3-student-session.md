@@ -842,6 +842,290 @@ git add tools/multitenant/MergeStudentSessionData.php tests/tools/multitenant/Me
 git commit -m "feat: add MergeStudentSessionData to reconnect migrated students to their class/section"
 ```
 
+**Post-Task-4 fix (found while running Task 6 against real data, before Stage
+3 could be marked complete):** running the real merge for `al_hafeez_campus`
+migrated only 311 of 484 `student_session` rows, silently dropping 173 rows
+(72 of 312 students left with zero session rows). Root cause: `sections.section`
+(the name, e.g. "Green 05") is NOT unique across a school — the real data has
+the *same* `sections.id` intentionally shared across several classes via
+`class_sections` (e.g. section id 20 = "Green 05" used by Class 1, 2, 4, and
+5), **plus** a genuinely separate section row with the same name for a fifth
+class (section id 43 = "Green 05" for Class 3). `NaturalKeyIdResolver::resolve()`
+correctly does exactly what it's specified to do — match on a single natural-key
+column — but a bare section name was never a valid choice of natural key here;
+it was a modeling mistake in this task's original design, not a resolver bug.
+
+**Fix:** stop resolving `sections` on its own. Resolve the (class, section)
+*pair* jointly through the `class_sections` junction, keyed by
+`(class name, section name)` — that composite IS unique per school, because
+a given class only has one section with a given name, even though the same
+name (and even the same underlying `sections.id`) can and does repeat across
+different classes.
+
+- [ ] **Fix Step 1: Add `ClassSectionPairResolver`**
+
+Create `tools/multitenant/ClassSectionPairResolver.php`:
+
+```php
+<?php
+
+final class ClassSectionPairResolver
+{
+    public function resolve(PDO $source, PDO $target, int $tenantId): array
+    {
+        $sourceRows = $source->query(
+            'SELECT class_sections.class_id AS class_id, class_sections.section_id AS section_id,'
+            . ' classes.class AS class_name, sections.section AS section_name'
+            . ' FROM class_sections'
+            . ' JOIN classes ON classes.id = class_sections.class_id'
+            . ' JOIN sections ON sections.id = class_sections.section_id'
+        )->fetchAll(PDO::FETCH_ASSOC);
+
+        $targetStmt = $target->prepare(
+            'SELECT class_sections.class_id AS class_id, class_sections.section_id AS section_id,'
+            . ' classes.class AS class_name, sections.section AS section_name'
+            . ' FROM class_sections'
+            . ' JOIN classes ON classes.id = class_sections.class_id'
+            . ' JOIN sections ON sections.id = class_sections.section_id'
+            . ' WHERE class_sections.tenant_id = :tenant_id'
+        );
+        $targetStmt->execute([':tenant_id' => $tenantId]);
+        $targetRows = $targetStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $targetByNamePair = [];
+        foreach ($targetRows as $row) {
+            $namePairKey = $row['class_name'] . "\x00" . $row['section_name'];
+            $targetByNamePair[$namePairKey] = [
+                'class_id' => (int) $row['class_id'],
+                'section_id' => (int) $row['section_id'],
+            ];
+        }
+
+        $map = [];
+        foreach ($sourceRows as $row) {
+            $namePairKey = $row['class_name'] . "\x00" . $row['section_name'];
+            if (!isset($targetByNamePair[$namePairKey])) {
+                continue;
+            }
+            $oldPairKey = $row['class_id'] . ':' . $row['section_id'];
+            $map[$oldPairKey] = $targetByNamePair[$namePairKey];
+        }
+
+        return $map;
+    }
+}
+```
+
+- [ ] **Fix Step 2: Test it against the exact collision shape found in real data**
+
+Create `tests/tools/multitenant/ClassSectionPairResolverTest.php`:
+
+```php
+<?php
+
+use PHPUnit\Framework\TestCase;
+
+final class ClassSectionPairResolverTest extends TestCase
+{
+    private PDO $source;
+    private PDO $target;
+    private ClassSectionPairResolver $resolver;
+
+    protected function setUp(): void
+    {
+        $admin = new PDO('mysql:host=127.0.0.1;charset=utf8mb4', 'root', '');
+        $admin->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $admin->exec('DROP DATABASE IF EXISTS pairresolver_test_source');
+        $admin->exec('CREATE DATABASE pairresolver_test_source');
+        $admin->exec('DROP DATABASE IF EXISTS pairresolver_test_target');
+        $admin->exec('CREATE DATABASE pairresolver_test_target');
+
+        $this->source = new PDO('mysql:host=127.0.0.1;dbname=pairresolver_test_source;charset=utf8mb4', 'root', '');
+        $this->source->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $this->target = new PDO('mysql:host=127.0.0.1;dbname=pairresolver_test_target;charset=utf8mb4', 'root', '');
+        $this->target->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        $classSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, class VARCHAR(60) DEFAULT NULL';
+        $sectionSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, section VARCHAR(60) DEFAULT NULL';
+        $csSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, class_id INT NOT NULL, section_id INT NOT NULL';
+
+        foreach ([$this->source, $this->target] as $db) {
+            $tenantCol = $db === $this->target ? ', tenant_id INT NOT NULL' : '';
+            $db->exec("CREATE TABLE classes ({$classSchema}{$tenantCol})");
+            $db->exec("CREATE TABLE sections ({$sectionSchema}{$tenantCol})");
+            $db->exec("CREATE TABLE class_sections ({$csSchema}{$tenantCol})");
+        }
+
+        $this->resolver = new ClassSectionPairResolver();
+    }
+
+    protected function tearDown(): void
+    {
+        $admin = new PDO('mysql:host=127.0.0.1;charset=utf8mb4', 'root', '');
+        $admin->exec('DROP DATABASE IF EXISTS pairresolver_test_source');
+        $admin->exec('DROP DATABASE IF EXISTS pairresolver_test_target');
+    }
+
+    public function testResolvesSameSectionIdSharedAcrossMultipleClasses(): void
+    {
+        // Mirrors real al_hafeez_campus data: section id 20 "Green 05" used
+        // by both Class 1 and Class 2, via two different class_sections rows.
+        $this->source->exec("INSERT INTO classes (id, class) VALUES (1, 'Class 1'), (2, 'Class 2')");
+        $this->source->exec("INSERT INTO sections (id, section) VALUES (20, 'Green 05')");
+        $this->source->exec('INSERT INTO class_sections (class_id, section_id) VALUES (1, 20), (2, 20)');
+
+        $this->target->exec("INSERT INTO classes (id, class, tenant_id) VALUES (100, 'Class 1', 25), (101, 'Class 2', 25)");
+        $this->target->exec("INSERT INTO sections (id, section, tenant_id) VALUES (200, 'Green 05', 25)");
+        $this->target->exec('INSERT INTO class_sections (class_id, section_id, tenant_id) VALUES (100, 200, 25), (101, 200, 25)');
+
+        $map = $this->resolver->resolve($this->source, $this->target, 25);
+
+        $this->assertSame(['class_id' => 100, 'section_id' => 200], $map['1:20']);
+        $this->assertSame(['class_id' => 101, 'section_id' => 200], $map['2:20']);
+    }
+
+    public function testResolvesTwoDistinctSectionsSharingTheSameNameForDifferentClasses(): void
+    {
+        // Mirrors real al_hafeez_campus data: a SEPARATE section row (id 43)
+        // also named "Green 05", used only by Class 3 — must resolve
+        // independently of section id 20's mapping above.
+        $this->source->exec("INSERT INTO classes (id, class) VALUES (1, 'Class 1'), (3, 'Class 3')");
+        $this->source->exec("INSERT INTO sections (id, section) VALUES (20, 'Green 05'), (43, 'Green 05')");
+        $this->source->exec('INSERT INTO class_sections (class_id, section_id) VALUES (1, 20), (3, 43)');
+
+        $this->target->exec("INSERT INTO classes (id, class, tenant_id) VALUES (100, 'Class 1', 25), (102, 'Class 3', 25)");
+        $this->target->exec("INSERT INTO sections (id, section, tenant_id) VALUES (200, 'Green 05', 25), (201, 'Green 05', 25)");
+        $this->target->exec('INSERT INTO class_sections (class_id, section_id, tenant_id) VALUES (100, 200, 25), (102, 201, 25)');
+
+        $map = $this->resolver->resolve($this->source, $this->target, 25);
+
+        $this->assertSame(['class_id' => 100, 'section_id' => 200], $map['1:20']);
+        $this->assertSame(['class_id' => 102, 'section_id' => 201], $map['3:43']);
+    }
+}
+```
+
+- [ ] **Fix Step 3: Rewrite `MergeStudentSessionData::run()` to use the pair resolver**
+
+Replace the full contents of `tools/multitenant/MergeStudentSessionData.php` with:
+
+```php
+<?php
+
+require_once __DIR__ . '/AbstractTenantMerger.php';
+require_once __DIR__ . '/NaturalKeyIdResolver.php';
+require_once __DIR__ . '/ClassSectionPairResolver.php';
+
+final class MergeStudentSessionData extends AbstractTenantMerger
+{
+    public function run(): array
+    {
+        $studentResolver = new NaturalKeyIdResolver();
+        $studentMap = $studentResolver->resolve($this->source, $this->target, $this->tenantId, 'students', 'admission_no');
+
+        $pairResolver = new ClassSectionPairResolver();
+        $classSectionMap = $pairResolver->resolve($this->source, $this->target, $this->tenantId);
+
+        $sourceRows = $this->fetchAll(
+            'SELECT student_id, class_id, section_id, is_active, created_at, updated_at FROM student_session'
+        );
+
+        $rowsToInsert = [];
+        foreach ($sourceRows as $row) {
+            $oldStudentId = (int) $row['student_id'];
+            $oldPairKey = $row['class_id'] . ':' . $row['section_id'];
+            if (!isset($studentMap[$oldStudentId]) || !isset($classSectionMap[$oldPairKey])) {
+                continue;
+            }
+            $row['student_id'] = $studentMap[$oldStudentId];
+            $row['class_id'] = $classSectionMap[$oldPairKey]['class_id'];
+            $row['section_id'] = $classSectionMap[$oldPairKey]['section_id'];
+            $rowsToInsert[] = $row;
+        }
+
+        $this->inTransaction(function () use ($rowsToInsert) {
+            foreach ($rowsToInsert as $row) {
+                $this->insertRow('student_session', $row);
+            }
+        });
+
+        return ['student_session_migrated' => count($rowsToInsert)];
+    }
+}
+
+if (PHP_SAPI === 'cli' && basename(__FILE__) === basename($argv[0] ?? '')) {
+    $sourceDb = $argv[1] ?? null;
+    $tenantId = isset($argv[2]) ? (int) $argv[2] : null;
+
+    if (!$sourceDb || !$tenantId) {
+        fwrite(STDERR, "Usage: php MergeStudentSessionData.php <source_database_name> <tenant_id>\n");
+        exit(1);
+    }
+
+    $source = new PDO("mysql:host=127.0.0.1;dbname={$sourceDb};charset=utf8mb4", 'root', '');
+    $source->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $target = new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', '');
+    $target->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+    $merger = new MergeStudentSessionData($source, $target, $tenantId);
+    $result = $merger->run();
+
+    echo "Migrated {$result['student_session_migrated']} student_session rows for tenant {$tenantId}.\n";
+}
+```
+
+- [ ] **Fix Step 4: Update `MergeStudentSessionDataTest`'s existing tests to the new resolution path**
+
+The two tests written in Task 4 inserted `class_sections` rows already
+(`INSERT INTO class_sections (class_id, section_id) VALUES (1, 1, 1)`-style
+statements were NOT actually present — re-check: Task 4's original tests
+only created/queried `students`/`classes`/`sections`/`student_session`, with
+NO `class_sections` table at all). Since the fixed `run()` now requires
+`class_sections` on both source and target, add `class_sections` table
+creation and rows to both existing tests' fixtures:
+
+In `tests/tools/multitenant/MergeStudentSessionDataTest.php`, add to
+`setUp()` (after the existing `classes`/`sections` table creation, both
+source and target):
+
+```php
+        $this->source->exec('CREATE TABLE class_sections (id INT AUTO_INCREMENT PRIMARY KEY, class_id INT NOT NULL, section_id INT NOT NULL)');
+        $this->target->exec('CREATE TABLE class_sections (id INT AUTO_INCREMENT PRIMARY KEY, class_id INT NOT NULL, section_id INT NOT NULL, tenant_id INT NOT NULL)');
+```
+
+Then in `testReconnectsStudentSessionToAlreadyMigratedRowsByNaturalKey()`,
+after the existing `classes`/`sections` inserts on both source and target,
+add matching `class_sections` rows:
+
+```php
+        $this->source->exec('INSERT INTO class_sections (class_id, section_id) VALUES (201, 301)');
+        $this->target->exec('INSERT INTO class_sections (class_id, section_id, tenant_id) VALUES (2, 3, 25)');
+```
+
+And in `testSkipsRowsThatReferenceAStudentNotYetMigrated()`, add matching
+`class_sections` rows so the class/section side resolves (this test's point
+is that the STUDENT side fails to resolve, not the class/section side):
+
+```php
+        $this->source->exec('INSERT INTO class_sections (class_id, section_id) VALUES (201, 301)');
+        $this->target->exec('INSERT INTO class_sections (class_id, section_id, tenant_id) VALUES (2, 3, 25)');
+```
+
+- [ ] **Fix Step 5: Run tests**
+
+Run: `"C:\xampp81\php\php.exe" vendor/bin/phpunit tests/tools/multitenant/ClassSectionPairResolverTest.php tests/tools/multitenant/MergeStudentSessionDataTest.php`
+Expected: `OK (4 tests, ...)` (2 new `ClassSectionPairResolverTest` + 2 updated `MergeStudentSessionDataTest`).
+
+Run: `"C:\xampp81\php\php.exe" vendor/bin/phpunit`
+Expected: `OK (31 tests, ...)` (29 prior + 2 new `ClassSectionPairResolverTest` tests; the 2 `MergeStudentSessionDataTest` tests are modified, not added, so the total count grows by 2, not 4).
+
+- [ ] **Fix Step 6: Commit**
+
+```bash
+git add tools/multitenant/ClassSectionPairResolver.php tests/tools/multitenant/ClassSectionPairResolverTest.php tools/multitenant/MergeStudentSessionData.php tests/tools/multitenant/MergeStudentSessionDataTest.php
+git commit -m "fix: resolve class/section as a joined pair, not by section name alone, to handle shared section names across classes"
+```
+
 ---
 
 ### Task 5: `PilotStudentSessions` controller — show each student's class/section
