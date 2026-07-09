@@ -60,13 +60,18 @@ made.
      has been migrated into `school_saas` and verified end to end: a real
      login via `PilotLogin` resolves the correct staff name, email, and
      role, and a wrong password is correctly rejected.
-   - **Stage 2 — Classes/sections catalog** — plan:
-     `2026-07-09-multi-tenant-phase2-stage2-classes-sections.md`. Migrates
-     `classes`/`sections`/`class_sections` (the catalog only — NOT
-     `student_session`, the table that actually links a student to a
+   - **Stage 2 — Classes/sections catalog** — ✅ complete (2026-07-09,
+     plan: `2026-07-09-multi-tenant-phase2-stage2-classes-sections.md`).
+     Migrates `classes`/`sections`/`class_sections` (the catalog only —
+     NOT `student_session`, the table that actually links a student to a
      class/section, which needs its own stage since it requires
      reconstructing Phase 1's students old-id→new-id mapping via
-     `admission_no`). Proven via a new `PilotClasses` controller.
+     `admission_no`). Proven via a new `PilotClasses` controller. The
+     pilot tenant's real class/section data (7 classes, 8 sections, 13
+     class_sections for `al_hafeez_campus`, tenant 25) has been migrated
+     into `school_saas` and verified end to end: `PilotClasses` lists
+     all 7 real class names each with their real (non-"Unknown") section
+     names, cross-checked directly against the source database.
    - **Stage 3+ — student_session, exams, attendance** — not yet planned.
 
 3. **Phase 3 — Retrofit remaining modules** (not yet planned)
