@@ -50,12 +50,16 @@ made.
    production login path for the pilot tenant to a later stage, once more
    of the admin panel is proven tenant-safe end to end.
 
-   - **Stage 1 — Staff + real login proof** — plan:
-     `2026-07-09-multi-tenant-phase2-staff-login.md`. Extends `school_saas`
-     with `staff`/`staff_roles`/`roles`; a new `PilotLogin` controller does
-     real credential verification and role resolution against those
-     tables via `Tenant_Model`, without touching `Site.php` or the real
-     admin dashboard.
+   - **Stage 1 — Staff + real login proof** — ✅ complete (2026-07-09,
+     plan: `2026-07-09-multi-tenant-phase2-staff-login.md`). Extends
+     `school_saas` with `staff`/`staff_roles`/`roles`; a new `PilotLogin`
+     controller does real credential verification and role resolution
+     against those tables via `Tenant_Model`, without touching `Site.php`
+     or the real admin dashboard. The pilot tenant's real staff data
+     (18 staff, 8 roles, 18 staff_roles for `al_hafeez_campus`, tenant 25)
+     has been migrated into `school_saas` and verified end to end: a real
+     login via `PilotLogin` resolves the correct staff name, email, and
+     role, and a wrong password is correctly rejected.
    - **Stage 2+ — classes/sections, exams, attendance** — not yet planned.
 
 3. **Phase 3 — Retrofit remaining modules** (not yet planned)
