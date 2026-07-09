@@ -1,0 +1,15 @@
+{
+    "name": "smart-school/multitenant-tools",
+    "description": "Dev tooling and tests for the multi-tenant migration",
+    "require-dev": {
+        "phpunit/phpunit": "^10.5"
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
+        },
+        "classmap": [
+            "tools/multitenant/"
+        ]
+    }
+}
