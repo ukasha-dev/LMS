@@ -75,4 +75,28 @@ final class NaturalKeyIdResolverTest extends TestCase
         $this->assertSame([101 => 7], $map);
         $this->assertArrayNotHasKey(102, $map);
     }
+
+    public function testThrowsWhenSourceHasDuplicateNaturalKeyWithDifferentIds(): void
+    {
+        // Two DIFFERENT source rows share the same admission_no — the
+        // resolver cannot know which source id "ADM-001" should refer to.
+        $this->source->exec("INSERT INTO students (id, admission_no) VALUES (101, 'ADM-001'), (102, 'ADM-001')");
+        $this->target->exec("INSERT INTO students (id, admission_no, tenant_id) VALUES (7, 'ADM-001', 25)");
+
+        $this->expectException(RuntimeException::class);
+
+        $this->resolver->resolve($this->source, $this->target, 25, 'students', 'admission_no');
+    }
+
+    public function testThrowsWhenTargetHasDuplicateNaturalKeyWithDifferentIds(): void
+    {
+        // Same shape as above, but the ambiguity lives on the TARGET side:
+        // two different rows for the same tenant share the same admission_no.
+        $this->source->exec("INSERT INTO students (id, admission_no) VALUES (101, 'ADM-001')");
+        $this->target->exec("INSERT INTO students (id, admission_no, tenant_id) VALUES (7, 'ADM-001', 25), (8, 'ADM-001', 25)");
+
+        $this->expectException(RuntimeException::class);
+
+        $this->resolver->resolve($this->source, $this->target, 25, 'students', 'admission_no');
+    }
 }
