@@ -72,7 +72,16 @@ made.
      into `school_saas` and verified end to end: `PilotClasses` lists
      all 7 real class names each with their real (non-"Unknown") section
      names, cross-checked directly against the source database.
-   - **Stage 3+ — student_session, exams, attendance** — not yet planned.
+   - **Stage 3 — student_session** — plan:
+     `2026-07-09-multi-tenant-phase2-stage3-student-session.md`. Opens by
+     extracting `AbstractTenantMerger` from the three existing merge
+     tools (closing the triplication debt flagged in Stage 2's review),
+     then migrates `student_session` (the table that actually links a
+     student to a class/section) by reconnecting already-migrated rows
+     via a new `NaturalKeyIdResolver` (matching on `admission_no`/
+     `class`/`section`, since none of the prior stages' id mappings were
+     persisted). Proven via a new `PilotStudentSessions` controller.
+   - **Stage 4+ — exams, attendance** — not yet planned.
 
 3. **Phase 3 — Retrofit remaining modules** (not yet planned)
    Fees, payroll, library, transport, hostel, HR, messaging, and the rest
