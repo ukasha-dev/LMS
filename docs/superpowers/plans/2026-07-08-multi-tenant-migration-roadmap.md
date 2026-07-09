@@ -72,15 +72,35 @@ made.
      into `school_saas` and verified end to end: `PilotClasses` lists
      all 7 real class names each with their real (non-"Unknown") section
      names, cross-checked directly against the source database.
-   - **Stage 3 — student_session** — plan:
-     `2026-07-09-multi-tenant-phase2-stage3-student-session.md`. Opens by
-     extracting `AbstractTenantMerger` from the three existing merge
+   - **Stage 3 — student_session** — ✅ complete (2026-07-09, plan:
+     `2026-07-09-multi-tenant-phase2-stage3-student-session.md`). Opened
+     by extracting `AbstractTenantMerger` from the three existing merge
      tools (closing the triplication debt flagged in Stage 2's review),
      then migrates `student_session` (the table that actually links a
      student to a class/section) by reconnecting already-migrated rows
-     via a new `NaturalKeyIdResolver` (matching on `admission_no`/
-     `class`/`section`, since none of the prior stages' id mappings were
-     persisted). Proven via a new `PilotStudentSessions` controller.
+     via a new `NaturalKeyIdResolver` (matching on `admission_no`) for
+     students. Proven via a new `PilotStudentSessions` controller.
+     **Bug found and fixed during this stage's first attempt:** the
+     initial class/section resolver matched on section name alone, which
+     silently dropped rows wherever a section name was reused across
+     multiple classes — a real, non-hypothetical shape in
+     `al_hafeez_campus`'s data (`"Green 05"` is shared across 5 different
+     classes, 4 of them via the same underlying section row and 1 via a
+     separate section row with the same name), losing 173 of 484
+     `student_session` rows (72 of 312 students left with no session
+     data) with no error raised. Fixed by adding `ClassSectionPairResolver`,
+     which resolves the (class, section) pair jointly through the
+     `class_sections` junction table instead of by section name alone,
+     plus a hardening pass that makes the resolver raise a
+     `RuntimeException` on any genuinely ambiguous pairing it can't
+     safely resolve, rather than silently mis-linking or dropping rows.
+     The corrected tool was re-run against the pilot tenant's real data
+     (`al_hafeez_campus`, tenant 25): all 484 source rows migrated (0
+     dropped), spot-checked against the source including the "Green 05"
+     collision case across all 5 classes, and verified end to end via
+     `PilotStudentSessions` (484 real students listed, each with a real
+     non-"Unknown" class/section; the rendered "Green 05" count matches
+     the source exactly).
    - **Stage 4+ — exams, attendance** — not yet planned.
 
 3. **Phase 3 — Retrofit remaining modules** (not yet planned)
