@@ -57,6 +57,17 @@ class Admin_Controller extends MY_Controller
     {
         parent::__construct();
         $this->auth->is_logged_in();
+
+        if ($this->session->userdata('admin_tenant_id')) {
+            $activeController = strtolower($this->router->fetch_class());
+            $activeMethod     = strtolower($this->router->fetch_method());
+            if ($activeController !== 'staff' || $activeMethod !== 'tenantstafflist') {
+                show_404();
+
+                return;
+            }
+        }
+
         $this->check_license();
         $this->load->library('rbac');
         $this->config->load('app-config');
