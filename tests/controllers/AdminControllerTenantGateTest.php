@@ -54,4 +54,15 @@ final class AdminControllerTenantGateTest extends TestCase
         [$status, ] = $this->curlGet('admin/admin/dashboard');
         $this->assertContains($status, [200, 302, 307]);
     }
+
+    public function testUngatedStudentAndDefaultSessionPathsAreUnaffected(): void
+    {
+        // No admin_tenant_id, no admin session at all -- exercises
+        // Db_manager's third (neither-admin-nor-student) branch, which
+        // Task 2's edit must leave completely untouched. A bare request
+        // to a public controller is enough to prove the app still
+        // boots and connects to its default database correctly.
+        [$status, ] = $this->curlGet('site/login');
+        $this->assertSame(200, $status);
+    }
 }

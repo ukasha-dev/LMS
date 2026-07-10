@@ -16,10 +16,14 @@ class Db_manager
 
         if ($this->CI->session->has_userdata('admin')) {
 
-            $database_session = $this->CI->session->userdata('admin');
-            $database_group   = $database_session['db_array']['db_group'];
-            
-            $this->CI->db=$this->CI->load->database($database_group, TRUE); 
+            if ($this->CI->session->userdata('admin_tenant_id')) {
+                $this->CI->db = $this->CI->load->database('school_saas_pilot', TRUE);
+            } else {
+                $database_session = $this->CI->session->userdata('admin');
+                $database_group   = $database_session['db_array']['db_group'];
+
+                $this->CI->db=$this->CI->load->database($database_group, TRUE);
+            }
         } elseif ($this->CI->session->has_userdata('student')) {
             
             $database_session = $this->CI->session->userdata('student');
