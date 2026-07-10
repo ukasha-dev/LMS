@@ -534,6 +534,196 @@ git add tools/multitenant/StudentSessionIdResolver.php tests/tools/multitenant/S
 git commit -m "fix: restrict StudentSessionIdResolver to active sessions to avoid dead-row collisions"
 ```
 
+**Post-Task-2 fix, round 2 (adversarial review caught round 1 was wrong,
+commit `19ff67509a01f804585c671de0c4edffb80d975e` superseded):** the
+independent reviewer re-derived the underlying data directly instead of
+trusting the round-1 analysis, and found the `is_active='yes'` filter is
+a **vacuous-truth bug**: every single one of `al_hafeez_campus`'s 484
+`student_session` rows is `is_active='no'` — there are zero `'yes'` rows
+on either the source or the (Stage-3-migrated) target side. So "zero
+collisions among active rows" was trivially true because the active-row
+set is empty. Live-probing `resolve()` against the real databases
+confirmed the round-1 code returns an **empty map** (0 entries), which
+made `MergeAttendanceData` report `student_attendences_migrated => 0`
+while claiming success — silent 100% data loss, strictly worse than
+round 1's honest, loud `RuntimeException`. `is_active` in this schema
+apparently marks "currently enrolled this term," not "was active when
+attendance happened" — it carries no signal relevant to this migration
+at all and must not be used to filter attendance-bearing rows.
+
+**Root-cause re-diagnosis:** direct SQL against both databases (see
+below) showed the two colliding students' duplicate rows differ by
+`session_id` (an academic-term column present on the source
+`student_session` table but never migrated to the target schema by
+Stage 3 — `school_saas.student_session` has no `session_id` column) —
+but **both source and target duplicate rows have byte-identical
+`created_at`/`updated_at` timestamps preserved 1:1 across the Stage 3
+merge** (verified: `10122` → source ids 1412/2476 with `created_at`
+`2025-07-18 11:21:38`/`2026-02-10 10:42:37`, target ids 518/643 with the
+*exact same two timestamps*; `10175` → source 184/2438 vs target
+340/606, same pairing). Re-running the collision-group query with
+`created_at` added to the `GROUP BY` on both `al_hafeez_campus` and
+`school_saas` (tenant 25) returns **zero** remaining collision groups on
+either side, with both tables still showing their full 484 rows and all
+213 distinct attendance-referenced session ids present with no dangling
+references. `created_at` is a real, already-preserved column on both
+sides (unlike `session_id`, which only exists on the source) — extending
+the composite key to include it is the narrowest fix that actually
+matches the data.
+
+**Fix:** extend `StudentSessionIdResolver`'s composite natural key from
+3 columns (`admission_no`, `class`, `section`) to 4
+(`admission_no`, `class`, `section`, `created_at`) — no `is_active`
+filtering at all. Revert the round-1 `WHERE`/`AND is_active = 'yes'`
+clauses entirely.
+
+- [ ] **Fix Round 2, Step 1: Replace `StudentSessionIdResolver` with the `created_at`-keyed version**
+
+Replace the full contents of `tools/multitenant/StudentSessionIdResolver.php` with:
+
+```php
+<?php
+
+final class StudentSessionIdResolver
+{
+    public function resolve(PDO $source, PDO $target, int $tenantId): array
+    {
+        $sourceRows = $source->query(
+            'SELECT student_session.id AS id, students.admission_no AS admission_no,'
+            . ' classes.class AS class_name, sections.section AS section_name,'
+            . ' student_session.created_at AS created_at'
+            . ' FROM student_session'
+            . ' JOIN students ON students.id = student_session.student_id'
+            . ' JOIN classes ON classes.id = student_session.class_id'
+            . ' JOIN sections ON sections.id = student_session.section_id'
+        )->fetchAll(PDO::FETCH_ASSOC);
+
+        $targetStmt = $target->prepare(
+            'SELECT student_session.id AS id, students.admission_no AS admission_no,'
+            . ' classes.class AS class_name, sections.section AS section_name,'
+            . ' student_session.created_at AS created_at'
+            . ' FROM student_session'
+            . ' JOIN students ON students.id = student_session.student_id'
+            . ' JOIN classes ON classes.id = student_session.class_id'
+            . ' JOIN sections ON sections.id = student_session.section_id'
+            . ' WHERE student_session.tenant_id = :tenant_id'
+        );
+        $targetStmt->execute([':tenant_id' => $tenantId]);
+        $targetRows = $targetStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $sourceMap = $this->buildKeyedMap($sourceRows, 'source');
+        $targetMap = $this->buildKeyedMap($targetRows, 'target');
+
+        $oldToNew = [];
+        foreach ($sourceMap as $key => $oldId) {
+            if (isset($targetMap[$key])) {
+                $oldToNew[$oldId] = $targetMap[$key];
+            }
+        }
+
+        return $oldToNew;
+    }
+
+    private function buildKeyedMap(array $rows, string $side): array
+    {
+        $map = [];
+        foreach ($rows as $row) {
+            $key = $row['admission_no'] . "\x00" . $row['class_name'] . "\x00" . $row['section_name'] . "\x00" . $row['created_at'];
+            $id = (int) $row['id'];
+            if (isset($map[$key]) && $map[$key] !== $id) {
+                throw new RuntimeException(
+                    "Ambiguous student_session key: multiple distinct ids share"
+                    . " admission_no/class/section/created_at \"{$row['admission_no']}\"/\"{$row['class_name']}\"/\"{$row['section_name']}\"/\"{$row['created_at']}\""
+                    . " in {$side} data — cannot safely resolve. Manual investigation required."
+                );
+            }
+            $map[$key] = $id;
+        }
+
+        return $map;
+    }
+}
+```
+
+- [ ] **Fix Round 2, Step 2: Revert the `is_active` schema/test changes from round 1, add `created_at`**
+
+In both `tests/tools/multitenant/StudentSessionIdResolverTest.php` and
+`tests/tools/multitenant/MergeAttendanceDataTest.php`, change
+`$sessionSchema` back to omit `is_active` (round 1's addition is no
+longer read by the resolver) and instead add a `created_at` column:
+
+```php
+        $sessionSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, student_id INT NOT NULL, class_id INT NOT NULL, section_id INT NOT NULL,'
+            . " created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP";
+```
+
+Existing tests that insert exactly one row per natural key are
+unaffected by the default. The existing
+`testThrowsWhenSourceHasAmbiguousDuplicateCompositeKey` test inserts two
+rows sharing the same natural key in the same statement with no explicit
+`created_at` — both get the same default timestamp (same INSERT
+statement, same instant), so the collision remains genuine and the test
+still correctly expects a `RuntimeException`. No changes needed to that
+test's body.
+
+Delete round 1's `testExcludesInactiveSessionsFromBothTheMapAndCollisionDetection`
+test entirely (it encoded the disproven `is_active` theory) and replace
+it with:
+
+```php
+    public function testDistinctCreatedAtDisambiguatesSameCompositeKey(): void
+    {
+        $this->source->exec("INSERT INTO students (id, admission_no) VALUES (101, 'ADM-001')");
+        $this->source->exec("INSERT INTO classes (id, class) VALUES (201, 'Class 1')");
+        $this->source->exec("INSERT INTO sections (id, section) VALUES (301, 'A')");
+        // Two session rows for the exact same student/class/section triple,
+        // at two different points in time -- mirrors the real
+        // al_hafeez_campus collision (admission_no 10175/10122: two
+        // enrollments in the same class/section a school year apart, same
+        // admission_no/class/section, distinct created_at). Must NOT throw,
+        // and each old id must resolve to its own matching target id.
+        $this->source->exec(
+            "INSERT INTO student_session (id, student_id, class_id, section_id, created_at) VALUES"
+            . " (401, 101, 201, 301, '2025-07-18 11:21:38'), (402, 101, 201, 301, '2026-02-10 10:42:37')"
+        );
+
+        $this->target->exec("INSERT INTO students (id, admission_no, tenant_id) VALUES (1, 'ADM-001', 25)");
+        $this->target->exec("INSERT INTO classes (id, class, tenant_id) VALUES (2, 'Class 1', 25)");
+        $this->target->exec("INSERT INTO sections (id, section, tenant_id) VALUES (3, 'A', 25)");
+        $this->target->exec(
+            "INSERT INTO student_session (id, student_id, class_id, section_id, tenant_id, created_at) VALUES"
+            . " (4, 1, 2, 3, 25, '2025-07-18 11:21:38'), (5, 1, 2, 3, 25, '2026-02-10 10:42:37')"
+        );
+
+        $map = $this->resolver->resolve($this->source, $this->target, 25);
+
+        $this->assertSame([401 => 4, 402 => 5], $map);
+    }
+```
+
+- [ ] **Fix Round 2, Step 3: Run tests**
+
+Run: `"C:\xampp81\php\php.exe" vendor/bin/phpunit`
+Expected: `OK (41 tests, ...)` (same total as round 1 — one test removed,
+one added).
+
+- [ ] **Fix Round 2, Step 4: Verify against real data before re-attempting Task 5**
+
+Write a throwaway probe script (not committed) that calls
+`StudentSessionIdResolver::resolve()` against real PDO connections to
+`al_hafeez_campus` (source) and `school_saas` tenant 25 (target).
+Expected: no exception, map size 484 (all source rows resolve — the
+round-1 probe returned 0; this must not repeat), and specifically that
+old ids 184→340, 2438→606, 1412→518, 2476→643 (the four previously
+colliding rows) all appear correctly in the map.
+
+- [ ] **Fix Round 2, Step 5: Commit**
+
+```bash
+git add tools/multitenant/StudentSessionIdResolver.php tests/tools/multitenant/StudentSessionIdResolverTest.php tests/tools/multitenant/MergeAttendanceDataTest.php
+git commit -m "fix: key StudentSessionIdResolver on created_at instead of is_active, which carries no real signal here"
+```
+
 ---
 
 ### Task 3: `MergeAttendanceData` — migrate attendance types + records
