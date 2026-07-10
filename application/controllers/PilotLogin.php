@@ -94,7 +94,7 @@ class PilotLogin extends CI_Controller
         ]);
         $this->session->set_userdata('admin_tenant_id', $tenantId);
 
-        redirect('staff/tenantStaffList');
+        redirect('admin/staff/tenantStaffList');
     }
 
     public function dashboard()
