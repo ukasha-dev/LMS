@@ -581,7 +581,7 @@ Expected: `No syntax errors detected` for all three.
 - [ ] **Step 7: Run the full suite**
 
 Run: `"C:\xampp81\php\php.exe" vendor/bin/phpunit`
-Expected: `OK (47 tests, ...)` (46 prior + 1 new).
+Expected: `OK (48 tests, ...)` (47 prior + 1 new).
 
 - [ ] **Step 8: Commit**
 
@@ -663,7 +663,7 @@ Expected: `No syntax errors detected`.
   adds no new automated tests; Task 5 verifies this change live)**
 
 Run: `"C:\xampp81\php\php.exe" vendor/bin/phpunit`
-Expected: `OK (47 tests, ...)` (unchanged from Task 3).
+Expected: `OK (48 tests, ...)` (unchanged from Task 3).
 
 - [ ] **Step 5: Commit**
 
@@ -772,7 +772,7 @@ explicitly rather than committing a test that silently can't run.)
 - [ ] **Step 4: Run the full suite**
 
 Run: `"C:\xampp81\php\php.exe" vendor/bin/phpunit`
-Expected: `OK (48 tests, ...)` (47 prior + 1 new), assuming Step 3's test
+Expected: `OK (49 tests, ...)` (48 prior + 1 new), assuming Step 3's test
 could be committed with real, working credentials.
 
 - [ ] **Step 5: Update the roadmap**
