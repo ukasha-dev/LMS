@@ -11,6 +11,7 @@ final class StudentSessionIdResolver
             . ' JOIN students ON students.id = student_session.student_id'
             . ' JOIN classes ON classes.id = student_session.class_id'
             . ' JOIN sections ON sections.id = student_session.section_id'
+            . " WHERE student_session.is_active = 'yes'"
         )->fetchAll(PDO::FETCH_ASSOC);
 
         $targetStmt = $target->prepare(
@@ -20,7 +21,7 @@ final class StudentSessionIdResolver
             . ' JOIN students ON students.id = student_session.student_id'
             . ' JOIN classes ON classes.id = student_session.class_id'
             . ' JOIN sections ON sections.id = student_session.section_id'
-            . ' WHERE student_session.tenant_id = :tenant_id'
+            . " WHERE student_session.tenant_id = :tenant_id AND student_session.is_active = 'yes'"
         );
         $targetStmt->execute([':tenant_id' => $tenantId]);
         $targetRows = $targetStmt->fetchAll(PDO::FETCH_ASSOC);

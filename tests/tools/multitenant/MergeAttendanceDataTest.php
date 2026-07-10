@@ -24,7 +24,8 @@ final class MergeAttendanceDataTest extends TestCase
         $studentSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, admission_no VARCHAR(100) DEFAULT NULL';
         $classSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, class VARCHAR(60) DEFAULT NULL';
         $sectionSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, section VARCHAR(60) DEFAULT NULL';
-        $sessionSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, student_id INT NOT NULL, class_id INT NOT NULL, section_id INT NOT NULL';
+        $sessionSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, student_id INT NOT NULL, class_id INT NOT NULL, section_id INT NOT NULL,'
+            . " is_active VARCHAR(255) DEFAULT 'yes'";
         $typeSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, type VARCHAR(50) DEFAULT NULL, key_value VARCHAR(50) NOT NULL,'
             . ' long_lang_name VARCHAR(250) DEFAULT NULL, long_name_style VARCHAR(250) DEFAULT NULL,'
             . " is_active VARCHAR(255) DEFAULT NULL, for_qr_attendance INT NOT NULL DEFAULT 1, for_schedule INT NOT NULL DEFAULT 0,"

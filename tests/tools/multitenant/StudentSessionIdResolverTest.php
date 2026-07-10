@@ -25,7 +25,8 @@ final class StudentSessionIdResolverTest extends TestCase
         $studentSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, admission_no VARCHAR(100) DEFAULT NULL';
         $classSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, class VARCHAR(60) DEFAULT NULL';
         $sectionSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, section VARCHAR(60) DEFAULT NULL';
-        $sessionSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, student_id INT NOT NULL, class_id INT NOT NULL, section_id INT NOT NULL';
+        $sessionSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, student_id INT NOT NULL, class_id INT NOT NULL, section_id INT NOT NULL,'
+            . " is_active VARCHAR(255) DEFAULT 'yes'";
 
         $this->source->exec("CREATE TABLE students ({$studentSchema})");
         $this->source->exec("CREATE TABLE classes ({$classSchema})");
@@ -99,5 +100,27 @@ final class StudentSessionIdResolverTest extends TestCase
 
         $this->expectException(RuntimeException::class);
         $this->resolver->resolve($this->source, $this->target, 25);
+    }
+
+    public function testExcludesInactiveSessionsFromBothTheMapAndCollisionDetection(): void
+    {
+        $this->source->exec("INSERT INTO students (id, admission_no) VALUES (101, 'ADM-001')");
+        $this->source->exec("INSERT INTO classes (id, class) VALUES (201, 'Class 1')");
+        $this->source->exec("INSERT INTO sections (id, section) VALUES (301, 'A')");
+        // Two INACTIVE session rows for the exact same student/class/section
+        // triple -- mirrors the real al_hafeez_campus collision (admission_no
+        // 10175/10122, both duplicate rows is_active='no'). Must NOT throw,
+        // and neither row should appear in the result map.
+        $this->source->exec(
+            "INSERT INTO student_session (id, student_id, class_id, section_id, is_active) VALUES (401, 101, 201, 301, 'no'), (402, 101, 201, 301, 'no')"
+        );
+
+        $this->target->exec("INSERT INTO students (id, admission_no, tenant_id) VALUES (1, 'ADM-001', 25)");
+        $this->target->exec("INSERT INTO classes (id, class, tenant_id) VALUES (2, 'Class 1', 25)");
+        $this->target->exec("INSERT INTO sections (id, section, tenant_id) VALUES (3, 'A', 25)");
+
+        $map = $this->resolver->resolve($this->source, $this->target, 25);
+
+        $this->assertSame([], $map);
     }
 }
