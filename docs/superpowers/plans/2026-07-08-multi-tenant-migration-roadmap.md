@@ -101,7 +101,17 @@ made.
      `PilotStudentSessions` (484 real students listed, each with a real
      non-"Unknown" class/section; the rendered "Green 05" count matches
      the source exactly).
-   - **Stage 4+ — exams, attendance** — not yet planned.
+   - **Stage 4 — Attendance** — plan:
+     `2026-07-10-multi-tenant-phase2-stage4-attendance.md`. Migrates
+     `attendence_type` + `student_attendences` (1,124 real rows in
+     `al_hafeez_campus`). Introduces `StudentSessionIdResolver`
+     (composite `admission_no`/`class`/`section` key) to reconnect
+     attendance to Stage 3's `student_session` rows, with collision
+     detection built in from the start this time. Proven via a new
+     `PilotAttendance` controller. `staff_attendance` and
+     `student_subject_attendances` deferred (0 rows currently, nothing
+     real to prove).
+   - **Stage 5+ — exams** — not yet planned.
 
 3. **Phase 3 — Retrofit remaining modules** (not yet planned)
    Fees, payroll, library, transport, hostel, HR, messaging, and the rest
