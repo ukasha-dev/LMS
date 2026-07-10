@@ -127,7 +127,46 @@ made.
      source, and verified end to end via `PilotAttendance` (1,124
      `<li>` entries, each with a real non-"Unknown" student name,
      date, and attendance type).
-   - **Stage 5+ — exams** — not yet planned.
+   - **Stage 5 — Exams** — ✅ complete (2026-07-10, plan:
+     `2026-07-10-multi-tenant-phase2-stage5-exams.md`). Extends
+     `school_saas` with seven tenant-scoped tables (`sessions`,
+     `subjects`, `exam_groups`, `exam_group_class_batch_exams`,
+     `exam_group_class_batch_exam_subjects`,
+     `exam_group_class_batch_exam_students`, `exam_group_exam_results`)
+     — the deepest FK chain migrated yet, reaching two brand-new catalog
+     tables, three tables migrated fresh within the same run via plain
+     `IdRemapper`, and two tables that reconnect to data migrated in
+     EARLIER, SEPARATE stages (`students` from Stage 1,
+     `student_session` from Stage 3) by reusing `NaturalKeyIdResolver`
+     (Stage 3) and `StudentSessionIdResolver` (Stage 4) completely
+     unchanged — proving both resolvers generalize to a third consumer.
+     A new `MergeExamData` tool (extends `AbstractTenantMerger`)
+     performs the migration in one transaction; a new `PilotExam`
+     controller proves it end to end. **Bug found and fixed during this
+     stage's implementation, before any real data was touched (a
+     "Post-Task-3 fix," documented in the plan doc):** the initial Part
+     B code created an `IdRemapper` for `exam_group_exam_results` but
+     never called `remapId()`/`getMapping()` on it, so those rows alone
+     were inserted with their SOURCE database's original `id` unchanged
+     instead of a freshly computed target id — harmless with only one
+     tenant migrated (the two databases' autoincrement sequences don't
+     happen to collide yet), but the same "ticking bomb for the next
+     school" shape Stage 3 and Stage 4 each hit once already. Fixed by
+     remapping the row's own id like every other table in the file,
+     with a regression test that pre-seeds a colliding id 900 in the
+     target and asserts the migrated row lands elsewhere. The corrected
+     tool was then run against the pilot tenant's real data
+     (`al_hafeez_campus`, tenant 25): `Migrated 15 sessions, 38
+     subjects, 8 exam groups, 32 batch exams, 266 exam subjects, 719
+     exam-student enrollments, and 2785 exam results for tenant 25.`
+     with no STDERR skip warnings (both skip counts 0, as predicted by
+     this stage's pre-flight dangling-reference survey) — matching the
+     source exactly on all seven row counts (15 / 38 / 8 / 32 / 266 /
+     719 / 2785 on both sides). Spot-checked 5 real students (90
+     admission_no/subject/marks/attendance/exam rows) byte-for-byte
+     identical between `al_hafeez_campus` and `school_saas`, and
+     verified end to end via `PilotExam` (2785 `<li>` entries, 0
+     "Unknown" occurrences, header correctly reading "8 exam groups").
 
 3. **Phase 3 — Retrofit remaining modules** (not yet planned)
    Fees, payroll, library, transport, hostel, HR, messaging, and the rest
