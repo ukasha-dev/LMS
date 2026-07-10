@@ -40,6 +40,19 @@ final class MergeExamDataTest extends TestCase
             . ' date_to DATETIME DEFAULT NULL, is_active INT DEFAULT 0,'
             . ' created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP';
 
+        $studentSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, admission_no VARCHAR(100) DEFAULT NULL';
+        $classSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, class VARCHAR(60) DEFAULT NULL';
+        $sectionSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, section VARCHAR(60) DEFAULT NULL';
+        $studentSessionSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, student_id INT NOT NULL, class_id INT NOT NULL, section_id INT NOT NULL,'
+            . " created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP";
+        $batchExamStudentSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, exam_group_class_batch_exam_id INT NOT NULL, student_id INT NOT NULL,'
+            . ' student_session_id INT NOT NULL, roll_no INT DEFAULT NULL, teacher_remark TEXT DEFAULT NULL, `rank` INT NOT NULL DEFAULT 0,'
+            . ' is_active INT DEFAULT 0, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP';
+        $resultSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, exam_group_class_batch_exam_student_id INT NOT NULL,'
+            . ' exam_group_class_batch_exam_subject_id INT DEFAULT NULL, attendence VARCHAR(10) DEFAULT NULL, get_marks FLOAT(10,2) DEFAULT 0.00,'
+            . ' note TEXT DEFAULT NULL, is_active INT DEFAULT 0,'
+            . ' created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP';
+
         foreach ([$this->source, $this->target] as $db) {
             $tenantCol = $db === $this->target ? ', tenant_id INT NOT NULL' : '';
             $db->exec("CREATE TABLE sessions ({$sessionSchema}{$tenantCol})");
@@ -47,6 +60,12 @@ final class MergeExamDataTest extends TestCase
             $db->exec("CREATE TABLE exam_groups ({$examGroupSchema}{$tenantCol})");
             $db->exec("CREATE TABLE exam_group_class_batch_exams ({$batchExamSchema}{$tenantCol})");
             $db->exec("CREATE TABLE exam_group_class_batch_exam_subjects ({$batchExamSubjectSchema}{$tenantCol})");
+            $db->exec("CREATE TABLE students ({$studentSchema}{$tenantCol})");
+            $db->exec("CREATE TABLE classes ({$classSchema}{$tenantCol})");
+            $db->exec("CREATE TABLE sections ({$sectionSchema}{$tenantCol})");
+            $db->exec("CREATE TABLE student_session ({$studentSessionSchema}{$tenantCol})");
+            $db->exec("CREATE TABLE exam_group_class_batch_exam_students ({$batchExamStudentSchema}{$tenantCol})");
+            $db->exec("CREATE TABLE exam_group_exam_results ({$resultSchema}{$tenantCol})");
         }
     }
 
@@ -95,5 +114,90 @@ final class MergeExamDataTest extends TestCase
         $this->assertSame((int) $batchExam['id'], (int) $batchExamSubject['exam_group_class_batch_exams_id']);
         $this->assertSame((int) $subject['id'], (int) $batchExamSubject['subject_id']);
         $this->assertSame(25, (int) $batchExamSubject['tenant_id']);
+    }
+
+    public function testReconnectsExamStudentsAndResultsToAlreadyMigratedData(): void
+    {
+        // Catalog + schedule chain (same shape as the Part A test).
+        $this->source->exec("INSERT INTO sessions (id, session) VALUES (20, '2024-25')");
+        $this->source->exec("INSERT INTO exam_groups (id, name) VALUES (8, 'Annual Terminal Examination')");
+        $this->source->exec("INSERT INTO exam_group_class_batch_exams (id, exam, session_id, exam_group_id) VALUES (30, '9th Annual', 20, 8)");
+        $this->source->exec("INSERT INTO subjects (id, name, code, type) VALUES (5, 'Mathematics', '', 'theory')");
+        $this->source->exec(
+            "INSERT INTO exam_group_class_batch_exam_subjects (id, exam_group_class_batch_exams_id, subject_id, date_from, time_from, duration)"
+            . " VALUES (100, 30, 5, '2026-03-01', '09:00:00', '2 hours')"
+        );
+
+        // Student/session chain -- old ids in source (100s/400s), already
+        // migrated NEW ids in target (1s/4s), deliberately non-overlapping
+        // so a bug using the wrong id is obvious.
+        $this->source->exec("INSERT INTO students (id, admission_no) VALUES (101, 'ADM-001')");
+        $this->source->exec("INSERT INTO classes (id, class) VALUES (201, 'Class 1')");
+        $this->source->exec("INSERT INTO sections (id, section) VALUES (301, 'A')");
+        $this->source->exec("INSERT INTO student_session (id, student_id, class_id, section_id, created_at) VALUES (401, 101, 201, 301, '2025-01-01 00:00:00')");
+
+        $this->target->exec("INSERT INTO students (id, admission_no, tenant_id) VALUES (1, 'ADM-001', 25)");
+        $this->target->exec("INSERT INTO classes (id, class, tenant_id) VALUES (2, 'Class 1', 25)");
+        $this->target->exec("INSERT INTO sections (id, section, tenant_id) VALUES (3, 'A', 25)");
+        $this->target->exec("INSERT INTO student_session (id, student_id, class_id, section_id, tenant_id, created_at) VALUES (4, 1, 2, 3, 25, '2025-01-01 00:00:00')");
+
+        $this->source->exec(
+            "INSERT INTO exam_group_class_batch_exam_students (id, exam_group_class_batch_exam_id, student_id, student_session_id, roll_no)"
+            . " VALUES (500, 30, 101, 401, 7)"
+        );
+        $this->source->exec(
+            "INSERT INTO exam_group_exam_results (id, exam_group_class_batch_exam_student_id, exam_group_class_batch_exam_subject_id, attendence, get_marks)"
+            . " VALUES (900, 500, 100, 'present', 88.5)"
+        );
+
+        $merger = new MergeExamData($this->source, $this->target, 25);
+        $result = $merger->run();
+
+        $this->assertSame(1, $result['exam_group_class_batch_exam_students_migrated']);
+        $this->assertSame(1, $result['exam_group_class_batch_exam_students_source_total']);
+        $this->assertSame(0, $result['exam_group_class_batch_exam_students_skipped']);
+        $this->assertSame(1, $result['exam_group_exam_results_migrated']);
+        $this->assertSame(1, $result['exam_group_exam_results_source_total']);
+        $this->assertSame(0, $result['exam_group_exam_results_skipped']);
+
+        $examStudent = $this->target->query('SELECT * FROM exam_group_class_batch_exam_students')->fetch(PDO::FETCH_ASSOC);
+        $this->assertSame(1, (int) $examStudent['student_id']);
+        $this->assertSame(4, (int) $examStudent['student_session_id']);
+        $this->assertSame(7, (int) $examStudent['roll_no']);
+        $this->assertSame(25, (int) $examStudent['tenant_id']);
+
+        $result_row = $this->target->query('SELECT * FROM exam_group_exam_results')->fetch(PDO::FETCH_ASSOC);
+        $this->assertSame((int) $examStudent['id'], (int) $result_row['exam_group_class_batch_exam_student_id']);
+        $this->assertSame(88.5, (float) $result_row['get_marks']);
+        $this->assertSame(25, (int) $result_row['tenant_id']);
+    }
+
+    public function testSkipsExamStudentRowsReferencingAnUnmigratedStudent(): void
+    {
+        $this->source->exec("INSERT INTO exam_groups (id, name) VALUES (8, 'Annual Terminal Examination')");
+        $this->source->exec("INSERT INTO sessions (id, session) VALUES (20, '2024-25')");
+        $this->source->exec("INSERT INTO exam_group_class_batch_exams (id, exam, session_id, exam_group_id) VALUES (30, '9th Annual', 20, 8)");
+        // student_id 999 / student_session_id 999 have no corresponding rows
+        // anywhere -- simulates a dangling reference that must be skipped,
+        // not inserted broken, and must be counted.
+        $this->source->exec(
+            "INSERT INTO exam_group_class_batch_exam_students (id, exam_group_class_batch_exam_id, student_id, student_session_id, roll_no)"
+            . " VALUES (500, 30, 999, 999, 1)"
+        );
+        $this->source->exec(
+            "INSERT INTO exam_group_exam_results (id, exam_group_class_batch_exam_student_id, attendence, get_marks) VALUES (900, 500, 'present', 50)"
+        );
+
+        $merger = new MergeExamData($this->source, $this->target, 25);
+        $result = $merger->run();
+
+        $this->assertSame(0, $result['exam_group_class_batch_exam_students_migrated']);
+        $this->assertSame(1, $result['exam_group_class_batch_exam_students_source_total']);
+        $this->assertSame(1, $result['exam_group_class_batch_exam_students_skipped']);
+        // The result row's own parent link never got migrated, so it must
+        // cascade-skip too, not orphan-insert.
+        $this->assertSame(0, $result['exam_group_exam_results_migrated']);
+        $this->assertSame(1, $result['exam_group_exam_results_source_total']);
+        $this->assertSame(1, $result['exam_group_exam_results_skipped']);
     }
 }
