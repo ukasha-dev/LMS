@@ -86,11 +86,14 @@ final class MergeExamData extends AbstractTenantMerger
         $resultSkipped = 0;
         $resultRowsToInsert = [];
         foreach ($results as $row) {
+            $oldId = (int) $row['id'];
             $oldStudentLinkId = (int) $row['exam_group_class_batch_exam_student_id'];
             if (!isset($batchExamStudentRowsToInsert[$oldStudentLinkId])) {
                 $resultSkipped++;
                 continue;
             }
+            $resultRemap->remapId($oldId);
+            $row['id'] = $resultRemap->getMapping($oldId);
             $row['exam_group_class_batch_exam_student_id'] = $batchExamStudentRemap->getMapping($oldStudentLinkId);
             if ($row['exam_group_class_batch_exam_subject_id'] !== null) {
                 $row['exam_group_class_batch_exam_subject_id'] = $batchExamSubjectRemap->getMapping((int) $row['exam_group_class_batch_exam_subject_id']);

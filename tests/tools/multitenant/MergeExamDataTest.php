@@ -172,6 +172,56 @@ final class MergeExamDataTest extends TestCase
         $this->assertSame(25, (int) $result_row['tenant_id']);
     }
 
+    public function testAssignsFreshTargetIdsToResultsInsteadOfReusingSourceIds(): void
+    {
+        // Same chain as the reconnect test, but the TARGET already has an
+        // unrelated exam_group_exam_results row sitting at id 900 -- the
+        // exact id the source row about to be migrated also uses. If
+        // results kept their source id unchanged (the bug this test
+        // guards against), inserting the migrated row would violate the
+        // target's PRIMARY KEY and this test would fail with a PDO
+        // exception instead of reaching the assertions below.
+        $this->source->exec("INSERT INTO sessions (id, session) VALUES (20, '2024-25')");
+        $this->source->exec("INSERT INTO exam_groups (id, name) VALUES (8, 'Annual Terminal Examination')");
+        $this->source->exec("INSERT INTO exam_group_class_batch_exams (id, exam, session_id, exam_group_id) VALUES (30, '9th Annual', 20, 8)");
+        $this->source->exec("INSERT INTO students (id, admission_no) VALUES (101, 'ADM-001')");
+        $this->source->exec("INSERT INTO classes (id, class) VALUES (201, 'Class 1')");
+        $this->source->exec("INSERT INTO sections (id, section) VALUES (301, 'A')");
+        $this->source->exec("INSERT INTO student_session (id, student_id, class_id, section_id, created_at) VALUES (401, 101, 201, 301, '2025-01-01 00:00:00')");
+        $this->source->exec(
+            "INSERT INTO exam_group_class_batch_exam_students (id, exam_group_class_batch_exam_id, student_id, student_session_id, roll_no)"
+            . " VALUES (500, 30, 101, 401, 7)"
+        );
+        $this->source->exec(
+            "INSERT INTO exam_group_exam_results (id, exam_group_class_batch_exam_student_id, attendence, get_marks) VALUES (900, 500, 'present', 88.5)"
+        );
+
+        $this->target->exec("INSERT INTO students (id, admission_no, tenant_id) VALUES (1, 'ADM-001', 25)");
+        $this->target->exec("INSERT INTO classes (id, class, tenant_id) VALUES (2, 'Class 1', 25)");
+        $this->target->exec("INSERT INTO sections (id, section, tenant_id) VALUES (3, 'A', 25)");
+        $this->target->exec("INSERT INTO student_session (id, student_id, class_id, section_id, tenant_id, created_at) VALUES (4, 1, 2, 3, 25, '2025-01-01 00:00:00')");
+        // Pre-existing, unrelated target rows occupying id 900 on both the
+        // parent link table and the results table itself.
+        $this->target->exec(
+            "INSERT INTO exam_group_class_batch_exam_students (id, exam_group_class_batch_exam_id, student_id, student_session_id, tenant_id) VALUES (900, 1, 1, 4, 25)"
+        );
+        $this->target->exec(
+            "INSERT INTO exam_group_exam_results (id, exam_group_class_batch_exam_student_id, get_marks, tenant_id) VALUES (900, 900, 10, 25)"
+        );
+
+        $merger = new MergeExamData($this->source, $this->target, 25);
+        $result = $merger->run();
+
+        $this->assertSame(1, $result['exam_group_exam_results_migrated']);
+        $count = (int) $this->target->query('SELECT COUNT(*) FROM exam_group_exam_results')->fetchColumn();
+        $this->assertSame(2, $count);
+
+        $migratedRow = $this->target->query(
+            "SELECT * FROM exam_group_exam_results WHERE get_marks = 88.5"
+        )->fetch(PDO::FETCH_ASSOC);
+        $this->assertNotSame(900, (int) $migratedRow['id']);
+    }
+
     public function testSkipsExamStudentRowsReferencingAnUnmigratedStudent(): void
     {
         $this->source->exec("INSERT INTO exam_groups (id, name) VALUES (8, 'Annual Terminal Examination')");
