@@ -182,3 +182,19 @@ made.
   likewise reference `attendence_type(id)`/`student_session(id)` alone,
   not `(tenant_id, id)` — same accepted debt. Worth a composite FK
   before Phase 5 migrates additional schools.
+- **Merge tools have no re-run/idempotency guard** (discovered 2026-07-10
+  during Stage 4's final-review fix-up, when a manual verification re-run
+  of `MergeAttendanceData.php al_hafeez_campus 25` — expected to error
+  against already-migrated data — instead silently duplicated all of
+  tenant 25's attendance rows, 1124→2248 and 6→12, with no error and no
+  count-mismatch signal; caught immediately via row counts and corrected
+  by deleting exactly the duplicate rows in a transaction, verified via
+  dangling-reference and per-tenant-count checks afterward). None of
+  `MergeSchoolData`, `MergeStaffData`, `MergeClassData`,
+  `MergeStudentSessionData`, or `MergeAttendanceData` check whether the
+  target tenant already has rows before inserting more. Harmless so far
+  because every real run to date has been against a clean tenant, but
+  Phase 5 will re-run these same tools repeatedly (once per remaining
+  school, likely with retries/resumes) — worth adding an explicit
+  "tenant already has data in table X, refusing to re-run" guard to
+  `AbstractTenantMerger` before Phase 5 starts.
