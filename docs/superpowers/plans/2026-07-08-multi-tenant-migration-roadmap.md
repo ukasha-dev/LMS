@@ -219,8 +219,12 @@ made.
   in `sql/multitenant/005_add_attendance_tables.sql`:
   `fk_studentattendences_type` and `fk_studentattendences_session`
   likewise reference `attendence_type(id)`/`student_session(id)` alone,
-  not `(tenant_id, id)` — same accepted debt. Worth a composite FK
-  before Phase 5 migrates additional schools.
+  not `(tenant_id, id)` — same accepted debt. The same shape recurs again
+  in all seven tables of `sql/multitenant/006_add_exam_tables.sql`: every
+  FK (`session_id`, `exam_group_id`, `subject_id`, `student_id`,
+  `student_session_id`, and the intra-stage exam-table links) references
+  `<table>(id)` alone. Worth a composite FK before Phase 5 migrates
+  additional schools.
 - **Merge tools have no re-run/idempotency guard** (discovered 2026-07-10
   during Stage 4's final-review fix-up, when a manual verification re-run
   of `MergeAttendanceData.php al_hafeez_campus 25` — expected to error
