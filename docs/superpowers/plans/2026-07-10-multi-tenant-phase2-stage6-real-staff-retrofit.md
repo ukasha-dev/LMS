@@ -665,7 +665,67 @@ Expected: `No syntax errors detected`.
 Run: `"C:\xampp81\php\php.exe" vendor/bin/phpunit`
 Expected: `OK (48 tests, ...)` (unchanged from Task 3).
 
-- [ ] **Step 5: Commit**
+**Post-Task-4 fix (found by the task reviewer before any live
+verification ran):** the `redirect('staff/tenantStaffList')` call above
+is wrong — `Staff.php` lives at `application/controllers/admin/Staff.php`,
+not `application/controllers/Staff.php`, so a bare `staff/tenantStaffList`
+URL never resolves to it. CI3's router only descends into the `admin/`
+subdirectory when the URL's first segment is literally `admin`; a
+top-level `staff/...` URL falls through to `404_override`
+(`welcome/show_404`), which in this app redirects on to `site/userlogin`
+rather than rendering a bare 404 — so the failure was silently masked as
+"yet another redirect," not an obvious error, which is exactly why this
+was worth catching in review rather than trusting the brief's literal
+text. Independently confirmed live: `GET /admin/staff/tenantStaffList`
+(unauthenticated) returns the expected `307` redirect to login — proving
+that URL resolves to a real, valid, gated controller/method — while the
+bare `GET /staff/tenantStaffList` also returns `307` but to a different,
+unrelated destination (`site/userlogin` via the 404 handler), confirming
+it never reaches `Staff::tenantStaffList()` at all. Task 1's allowlist
+gate itself needed no change — `fetch_class()`/`fetch_method()` return
+`staff`/`tenantstafflist` regardless of the `admin/` URL prefix, since
+that prefix is a directory, not part of the class name.
+
+- [ ] **Fix Step 1: Correct the redirect target**
+
+In `application/controllers/PilotLogin.php`, change the last line of
+`login()` from:
+
+```php
+        redirect('staff/tenantStaffList');
+```
+
+to:
+
+```php
+        redirect('admin/staff/tenantStaffList');
+```
+
+(Nothing else in the file changes.)
+
+- [ ] **Fix Step 2: Verify live**
+
+```bash
+COOKIEJAR=$(mktemp)
+curl -s -c "$COOKIEJAR" -b "$COOKIEJAR" -o /dev/null -w "%{http_code}\n" http://localhost/web-app/admin/staff/tenantStaffList
+```
+Expected: `307` (redirect to login — unauthenticated, but this now
+proves the URL resolves to the real, gated controller; Task 5 proves the
+authenticated path reaches it for real).
+
+- [ ] **Fix Step 3: Run the full suite**
+
+Run: `"C:\xampp81\php\php.exe" vendor/bin/phpunit`
+Expected: `OK (48 tests, ...)` (unchanged — this fix touches no tests).
+
+- [ ] **Fix Step 4: Commit**
+
+```bash
+git add application/controllers/PilotLogin.php
+git commit -m "fix: correct PilotLogin's redirect target to admin/staff/tenantStaffList"
+```
+
+---
 
 ```bash
 git add application/controllers/PilotLogin.php
@@ -687,7 +747,7 @@ Task 1 deferred.
 COOKIEJAR=$(mktemp)
 curl -s -c "$COOKIEJAR" -b "$COOKIEJAR" -X POST http://localhost/web-app/pilotlogin/login \
   -d "tenant_id=25&email=<a real al_hafeez_campus staff email from school_saas.staff, tenant_id=25>&password=<that staff member's real password>"
-curl -s -c "$COOKIEJAR" -b "$COOKIEJAR" http://localhost/web-app/staff/tenantStaffList
+curl -s -c "$COOKIEJAR" -b "$COOKIEJAR" http://localhost/web-app/admin/staff/tenantStaffList
 ```
 
 (Look up a real tenant-25 staff email via
@@ -729,7 +789,7 @@ Add to `tests/controllers/AdminControllerTenantGateTest.php`:
         [$loginStatus, ] = $this->curlPostPilotLogin();
         $this->assertContains($loginStatus, [200, 302]);
 
-        [$staffListStatus, $staffListBody] = $this->curlGet('staff/tenantStaffList');
+        [$staffListStatus, $staffListBody] = $this->curlGet('admin/staff/tenantStaffList');
         $this->assertSame(200, $staffListStatus);
         $this->assertStringContainsString('Tenant Staff List', $staffListBody);
 
