@@ -1114,7 +1114,7 @@ Add a line under Phase 2 → Stage 4 in
 `docs/superpowers/plans/2026-07-08-multi-tenant-migration-roadmap.md`,
 matching the style of the Stage 1-3 entries.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit** — committed as `60514820`.
 
 ```bash
 git add docs/superpowers/plans/2026-07-08-multi-tenant-migration-roadmap.md
