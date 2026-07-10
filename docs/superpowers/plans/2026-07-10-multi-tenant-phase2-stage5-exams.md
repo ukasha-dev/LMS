@@ -839,6 +839,126 @@ git add tools/multitenant/MergeExamData.php tests/tools/multitenant/MergeExamDat
 git commit -m "feat: extend MergeExamData (Part B) — reconnect exam students/results via existing resolvers"
 ```
 
+**Post-Task-3 fix (found during the implementer's self-review, before any
+real data was touched):** this plan's own Step 3 code created
+`$resultRemap = new IdRemapper($this->nextId('exam_group_exam_results'))`
+but never called `$resultRemap->remapId()`/`getMapping()` inside the
+`$results` loop — so `exam_group_exam_results` rows were the only table
+in the whole file inserted with their SOURCE database's original `id`
+value unchanged, instead of a freshly computed target id. Every other
+table in `MergeExamData.php` (and every table in every prior merge tool)
+follows the "compute a fresh id via `nextId()`+`IdRemapper`, overwrite
+`$row['id']` before insert" pattern; this one silently didn't. With only
+one tenant migrated so far this doesn't collide by accident (both
+databases' `exam_group_exam_results` auto-increment sequences happen to
+start near 1), but it's the same "harmless today, ticking bomb for the
+next school" shape Stage 3 and Stage 4 already hit twice — a second
+school's `exam_group_exam_results` source ids would very likely collide
+with tenant 25's already-occupied target ids, causing the whole
+migration's transaction to fail on a PRIMARY KEY violation (a loud
+failure, at least — the transaction wrapper prevents partial commits —
+but still a real defect worth fixing now while it's free).
+
+- [ ] **Fix Step 1: Remap the result row's own id**
+
+In `tools/multitenant/MergeExamData.php`, inside the `foreach ($results
+as $row) { ... }` loop (the one that currently starts with
+`$oldStudentLinkId = (int) $row['exam_group_class_batch_exam_student_id'];`),
+change it to also capture and remap the row's own id, so the loop reads:
+
+```php
+        foreach ($results as $row) {
+            $oldId = (int) $row['id'];
+            $oldStudentLinkId = (int) $row['exam_group_class_batch_exam_student_id'];
+            if (!isset($batchExamStudentRowsToInsert[$oldStudentLinkId])) {
+                $resultSkipped++;
+                continue;
+            }
+            $resultRemap->remapId($oldId);
+            $row['id'] = $resultRemap->getMapping($oldId);
+            $row['exam_group_class_batch_exam_student_id'] = $batchExamStudentRemap->getMapping($oldStudentLinkId);
+            if ($row['exam_group_class_batch_exam_subject_id'] !== null) {
+                $row['exam_group_class_batch_exam_subject_id'] = $batchExamSubjectRemap->getMapping((int) $row['exam_group_class_batch_exam_subject_id']);
+            }
+            $resultRowsToInsert[] = $row;
+        }
+```
+
+(Only the two new lines — `$oldId = ...` and the `$resultRemap->...`
+pair — are added; everything else in the loop is unchanged.)
+
+- [ ] **Fix Step 2: Add a regression test proving fresh ids are assigned**
+
+Add this test to `tests/tools/multitenant/MergeExamDataTest.php`, after
+`testReconnectsExamStudentsAndResultsToAlreadyMigratedData`:
+
+```php
+    public function testAssignsFreshTargetIdsToResultsInsteadOfReusingSourceIds(): void
+    {
+        // Same chain as the reconnect test, but the TARGET already has an
+        // unrelated exam_group_exam_results row sitting at id 900 -- the
+        // exact id the source row about to be migrated also uses. If
+        // results kept their source id unchanged (the bug this test
+        // guards against), inserting the migrated row would violate the
+        // target's PRIMARY KEY and this test would fail with a PDO
+        // exception instead of reaching the assertions below.
+        $this->source->exec("INSERT INTO sessions (id, session) VALUES (20, '2024-25')");
+        $this->source->exec("INSERT INTO exam_groups (id, name) VALUES (8, 'Annual Terminal Examination')");
+        $this->source->exec("INSERT INTO exam_group_class_batch_exams (id, exam, session_id, exam_group_id) VALUES (30, '9th Annual', 20, 8)");
+        $this->source->exec("INSERT INTO students (id, admission_no) VALUES (101, 'ADM-001')");
+        $this->source->exec("INSERT INTO classes (id, class) VALUES (201, 'Class 1')");
+        $this->source->exec("INSERT INTO sections (id, section) VALUES (301, 'A')");
+        $this->source->exec("INSERT INTO student_session (id, student_id, class_id, section_id, created_at) VALUES (401, 101, 201, 301, '2025-01-01 00:00:00')");
+        $this->source->exec(
+            "INSERT INTO exam_group_class_batch_exam_students (id, exam_group_class_batch_exam_id, student_id, student_session_id, roll_no)"
+            . " VALUES (500, 30, 101, 401, 7)"
+        );
+        $this->source->exec(
+            "INSERT INTO exam_group_exam_results (id, exam_group_class_batch_exam_student_id, attendence, get_marks) VALUES (900, 500, 'present', 88.5)"
+        );
+
+        $this->target->exec("INSERT INTO students (id, admission_no, tenant_id) VALUES (1, 'ADM-001', 25)");
+        $this->target->exec("INSERT INTO classes (id, class, tenant_id) VALUES (2, 'Class 1', 25)");
+        $this->target->exec("INSERT INTO sections (id, section, tenant_id) VALUES (3, 'A', 25)");
+        $this->target->exec("INSERT INTO student_session (id, student_id, class_id, section_id, tenant_id, created_at) VALUES (4, 1, 2, 3, 25, '2025-01-01 00:00:00')");
+        // Pre-existing, unrelated target rows occupying id 900 on both the
+        // parent link table and the results table itself.
+        $this->target->exec(
+            "INSERT INTO exam_group_class_batch_exam_students (id, exam_group_class_batch_exam_id, student_id, student_session_id, tenant_id) VALUES (900, 1, 1, 4, 25)"
+        );
+        $this->target->exec(
+            "INSERT INTO exam_group_exam_results (id, exam_group_class_batch_exam_student_id, get_marks, tenant_id) VALUES (900, 900, 10, 25)"
+        );
+
+        $merger = new MergeExamData($this->source, $this->target, 25);
+        $result = $merger->run();
+
+        $this->assertSame(1, $result['exam_group_exam_results_migrated']);
+        $count = (int) $this->target->query('SELECT COUNT(*) FROM exam_group_exam_results')->fetchColumn();
+        $this->assertSame(2, $count);
+
+        $migratedRow = $this->target->query(
+            "SELECT * FROM exam_group_exam_results WHERE get_marks = 88.5"
+        )->fetch(PDO::FETCH_ASSOC);
+        $this->assertNotSame(900, (int) $migratedRow['id']);
+    }
+```
+
+- [ ] **Fix Step 3: Run tests**
+
+Run: `"C:\xampp81\php\php.exe" vendor/bin/phpunit tests/tools/multitenant/MergeExamDataTest.php`
+Expected: `OK (4 tests, ...)`.
+
+Run: `"C:\xampp81\php\php.exe" vendor/bin/phpunit`
+Expected: `OK (45 tests, ...)` (44 prior + 1 new).
+
+- [ ] **Fix Step 4: Commit**
+
+```bash
+git add tools/multitenant/MergeExamData.php tests/tools/multitenant/MergeExamDataTest.php
+git commit -m "fix: assign fresh target ids to migrated exam_group_exam_results instead of reusing source ids"
+```
+
 ---
 
 ### Task 4: `PilotExam` controller — end-to-end proof
@@ -956,7 +1076,7 @@ Expected: `No syntax errors detected` for both.
 - [ ] **Step 4: Run the full suite (regression check only — this task adds no new tests)**
 
 Run: `"C:\xampp81\php\php.exe" vendor/bin/phpunit`
-Expected: `OK (44 tests, ...)` (unchanged from Task 3).
+Expected: `OK (45 tests, ...)` (unchanged from Task 3's post-fix count).
 
 - [ ] **Step 5: Commit**
 
