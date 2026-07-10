@@ -26,7 +26,7 @@ final class StudentSessionIdResolverTest extends TestCase
         $classSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, class VARCHAR(60) DEFAULT NULL';
         $sectionSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, section VARCHAR(60) DEFAULT NULL';
         $sessionSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, student_id INT NOT NULL, class_id INT NOT NULL, section_id INT NOT NULL,'
-            . " is_active VARCHAR(255) DEFAULT 'yes'";
+            . " created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP";
 
         $this->source->exec("CREATE TABLE students ({$studentSchema})");
         $this->source->exec("CREATE TABLE classes ({$classSchema})");
@@ -102,25 +102,32 @@ final class StudentSessionIdResolverTest extends TestCase
         $this->resolver->resolve($this->source, $this->target, 25);
     }
 
-    public function testExcludesInactiveSessionsFromBothTheMapAndCollisionDetection(): void
+    public function testDistinctCreatedAtDisambiguatesSameCompositeKey(): void
     {
         $this->source->exec("INSERT INTO students (id, admission_no) VALUES (101, 'ADM-001')");
         $this->source->exec("INSERT INTO classes (id, class) VALUES (201, 'Class 1')");
         $this->source->exec("INSERT INTO sections (id, section) VALUES (301, 'A')");
-        // Two INACTIVE session rows for the exact same student/class/section
-        // triple -- mirrors the real al_hafeez_campus collision (admission_no
-        // 10175/10122, both duplicate rows is_active='no'). Must NOT throw,
-        // and neither row should appear in the result map.
+        // Two session rows for the exact same student/class/section triple,
+        // at two different points in time -- mirrors the real
+        // al_hafeez_campus collision (admission_no 10175/10122: two
+        // enrollments in the same class/section a school year apart, same
+        // admission_no/class/section, distinct created_at). Must NOT throw,
+        // and each old id must resolve to its own matching target id.
         $this->source->exec(
-            "INSERT INTO student_session (id, student_id, class_id, section_id, is_active) VALUES (401, 101, 201, 301, 'no'), (402, 101, 201, 301, 'no')"
+            "INSERT INTO student_session (id, student_id, class_id, section_id, created_at) VALUES"
+            . " (401, 101, 201, 301, '2025-07-18 11:21:38'), (402, 101, 201, 301, '2026-02-10 10:42:37')"
         );
 
         $this->target->exec("INSERT INTO students (id, admission_no, tenant_id) VALUES (1, 'ADM-001', 25)");
         $this->target->exec("INSERT INTO classes (id, class, tenant_id) VALUES (2, 'Class 1', 25)");
         $this->target->exec("INSERT INTO sections (id, section, tenant_id) VALUES (3, 'A', 25)");
+        $this->target->exec(
+            "INSERT INTO student_session (id, student_id, class_id, section_id, tenant_id, created_at) VALUES"
+            . " (4, 1, 2, 3, 25, '2025-07-18 11:21:38'), (5, 1, 2, 3, 25, '2026-02-10 10:42:37')"
+        );
 
         $map = $this->resolver->resolve($this->source, $this->target, 25);
 
-        $this->assertSame([], $map);
+        $this->assertSame([401 => 4, 402 => 5], $map);
     }
 }
