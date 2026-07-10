@@ -361,6 +361,179 @@ git add tools/multitenant/StudentSessionIdResolver.php tests/tools/multitenant/S
 git commit -m "feat: add StudentSessionIdResolver to reconnect attendance to migrated sessions"
 ```
 
+**Post-Task-2 fix (found while running Task 5 against real data):** the
+collision-detection guard fired for real — running the real merge threw
+`RuntimeException` for admission_no `10175`/`10122`. Investigation found
+both students genuinely have TWO `student_session` rows for the same
+class/section (ids 184/2438 and 1412/2476 respectively), differing only
+in `session_id` (an academic-year/term column this migration doesn't
+track — see this stage's Global Constraints). Critically, **both rows for
+both students are marked `is_active='no'`, and neither is referenced by
+a single one of the 1,124 `student_attendences` rows** — verified via a
+direct join query. This isn't a data-completeness bug like Stage 3's
+(nothing gets silently dropped or mis-linked); it's the resolver's
+uniqueness domain being broader than it needs to be — it validates
+ambiguity across the WHOLE `student_session` table, including dead
+historical rows nothing in this migration actually needs.
+
+**Fix:** restrict `StudentSessionIdResolver` to only consider ACTIVE
+session rows (`student_session.is_active = 'yes'`) on both source and
+target sides. Verified empirically before applying: filtering the real
+`al_hafeez_campus` data to `is_active='yes'` and re-checking for
+duplicate `(admission_no, class, section)` combinations returns **zero**
+collisions — this isn't a fix scoped to just these two students, it
+resolves the whole class of the problem, because inactive/historical
+duplicate enrollment rows are exactly the kind of noise `is_active`
+already exists in this schema to mark.
+
+- [ ] **Fix Step 1: Update `StudentSessionIdResolver` to filter by `is_active`**
+
+Replace the full contents of `tools/multitenant/StudentSessionIdResolver.php` with:
+
+```php
+<?php
+
+final class StudentSessionIdResolver
+{
+    public function resolve(PDO $source, PDO $target, int $tenantId): array
+    {
+        $sourceRows = $source->query(
+            'SELECT student_session.id AS id, students.admission_no AS admission_no,'
+            . ' classes.class AS class_name, sections.section AS section_name'
+            . ' FROM student_session'
+            . ' JOIN students ON students.id = student_session.student_id'
+            . ' JOIN classes ON classes.id = student_session.class_id'
+            . ' JOIN sections ON sections.id = student_session.section_id'
+            . " WHERE student_session.is_active = 'yes'"
+        )->fetchAll(PDO::FETCH_ASSOC);
+
+        $targetStmt = $target->prepare(
+            'SELECT student_session.id AS id, students.admission_no AS admission_no,'
+            . ' classes.class AS class_name, sections.section AS section_name'
+            . ' FROM student_session'
+            . ' JOIN students ON students.id = student_session.student_id'
+            . ' JOIN classes ON classes.id = student_session.class_id'
+            . ' JOIN sections ON sections.id = student_session.section_id'
+            . " WHERE student_session.tenant_id = :tenant_id AND student_session.is_active = 'yes'"
+        );
+        $targetStmt->execute([':tenant_id' => $tenantId]);
+        $targetRows = $targetStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $sourceMap = $this->buildKeyedMap($sourceRows, 'source');
+        $targetMap = $this->buildKeyedMap($targetRows, 'target');
+
+        $oldToNew = [];
+        foreach ($sourceMap as $key => $oldId) {
+            if (isset($targetMap[$key])) {
+                $oldToNew[$oldId] = $targetMap[$key];
+            }
+        }
+
+        return $oldToNew;
+    }
+
+    private function buildKeyedMap(array $rows, string $side): array
+    {
+        $map = [];
+        foreach ($rows as $row) {
+            $key = $row['admission_no'] . "\x00" . $row['class_name'] . "\x00" . $row['section_name'];
+            $id = (int) $row['id'];
+            if (isset($map[$key]) && $map[$key] !== $id) {
+                throw new RuntimeException(
+                    "Ambiguous student_session key: multiple distinct ids share"
+                    . " admission_no/class/section \"{$row['admission_no']}\"/\"{$row['class_name']}\"/\"{$row['section_name']}\""
+                    . " in {$side} data — cannot safely resolve. Manual investigation required."
+                );
+            }
+            $map[$key] = $id;
+        }
+
+        return $map;
+    }
+}
+```
+
+(Only the two SQL strings changed — `class_name` and `is_active` addition
+to the `WHERE` clauses. `buildKeyedMap()` is unchanged.)
+
+- [ ] **Fix Step 2: Add `is_active` to both test files' `student_session` fixtures**
+
+The resolver's query now references `student_session.is_active`, so both
+`tests/tools/multitenant/StudentSessionIdResolverTest.php` and
+`tests/tools/multitenant/MergeAttendanceDataTest.php` (which exercises
+the resolver indirectly through `MergeAttendanceData`) need that column
+added to their `student_session` schema, with existing rows set to
+`'yes'` so they keep passing unmodified in behavior.
+
+In `tests/tools/multitenant/StudentSessionIdResolverTest.php`, change:
+
+```php
+        $sessionSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, student_id INT NOT NULL, class_id INT NOT NULL, section_id INT NOT NULL';
+```
+
+to:
+
+```php
+        $sessionSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, student_id INT NOT NULL, class_id INT NOT NULL, section_id INT NOT NULL,'
+            . " is_active VARCHAR(255) DEFAULT 'yes'";
+```
+
+The `DEFAULT 'yes'` means the three existing tests' `INSERT INTO
+student_session (id, student_id, class_id, section_id) VALUES (...)`
+statements (which don't mention `is_active`) automatically get `'yes'`
+and keep passing unmodified — no changes needed to the test bodies
+themselves, only the schema.
+
+Apply the identical schema change in
+`tests/tools/multitenant/MergeAttendanceDataTest.php`'s `$sessionSchema`
+variable (same string, same `DEFAULT 'yes'` addition) — its two existing
+tests' `student_session` inserts also omit `is_active` and will get the
+same default.
+
+- [ ] **Fix Step 3: Add a regression test proving the fix**
+
+Add to `tests/tools/multitenant/StudentSessionIdResolverTest.php`:
+
+```php
+    public function testExcludesInactiveSessionsFromBothTheMapAndCollisionDetection(): void
+    {
+        $this->source->exec("INSERT INTO students (id, admission_no) VALUES (101, 'ADM-001')");
+        $this->source->exec("INSERT INTO classes (id, class) VALUES (201, 'Class 1')");
+        $this->source->exec("INSERT INTO sections (id, section) VALUES (301, 'A')");
+        // Two INACTIVE session rows for the exact same student/class/section
+        // triple -- mirrors the real al_hafeez_campus collision (admission_no
+        // 10175/10122, both duplicate rows is_active='no'). Must NOT throw,
+        // and neither row should appear in the result map.
+        $this->source->exec(
+            "INSERT INTO student_session (id, student_id, class_id, section_id, is_active) VALUES (401, 101, 201, 301, 'no'), (402, 101, 201, 301, 'no')"
+        );
+
+        $this->target->exec("INSERT INTO students (id, admission_no, tenant_id) VALUES (1, 'ADM-001', 25)");
+        $this->target->exec("INSERT INTO classes (id, class, tenant_id) VALUES (2, 'Class 1', 25)");
+        $this->target->exec("INSERT INTO sections (id, section, tenant_id) VALUES (3, 'A', 25)");
+
+        $map = $this->resolver->resolve($this->source, $this->target, 25);
+
+        $this->assertSame([], $map);
+    }
+```
+
+- [ ] **Fix Step 4: Run tests**
+
+Run: `"C:\xampp81\php\php.exe" vendor/bin/phpunit tests/tools/multitenant/StudentSessionIdResolverTest.php tests/tools/multitenant/MergeAttendanceDataTest.php`
+Expected: `OK (6 tests, ...)` (4 in `StudentSessionIdResolverTest` — 3
+existing + 1 new — plus 2 unmodified in `MergeAttendanceDataTest`).
+
+Run: `"C:\xampp81\php\php.exe" vendor/bin/phpunit`
+Expected: `OK (41 tests, ...)` (40 prior + 1 new).
+
+- [ ] **Fix Step 5: Commit**
+
+```bash
+git add tools/multitenant/StudentSessionIdResolver.php tests/tools/multitenant/StudentSessionIdResolverTest.php tests/tools/multitenant/MergeAttendanceDataTest.php
+git commit -m "fix: restrict StudentSessionIdResolver to active sessions to avoid dead-row collisions"
+```
+
 ---
 
 ### Task 3: `MergeAttendanceData` — migrate attendance types + records
