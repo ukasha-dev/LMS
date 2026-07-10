@@ -101,8 +101,8 @@ made.
      `PilotStudentSessions` (484 real students listed, each with a real
      non-"Unknown" class/section; the rendered "Green 05" count matches
      the source exactly).
-   - **Stage 4 — Attendance** — plan:
-     `2026-07-10-multi-tenant-phase2-stage4-attendance.md`. Migrates
+   - **Stage 4 — Attendance** — ✅ complete (2026-07-10, plan:
+     `2026-07-10-multi-tenant-phase2-stage4-attendance.md`). Migrates
      `attendence_type` + `student_attendences` (1,124 real rows in
      `al_hafeez_campus`). Introduces `StudentSessionIdResolver`
      (composite `admission_no`/`class`/`section` key) to reconnect
@@ -110,7 +110,18 @@ made.
      detection built in from the start this time. Proven via a new
      `PilotAttendance` controller. `staff_attendance` and
      `student_subject_attendances` deferred (0 rows currently, nothing
-     real to prove).
+     real to prove). **First attempt correctly blocked** on an
+     ambiguous natural-key collision in `NaturalKeyIdResolver`
+     (fixed and independently reviewed twice — commit `48332594` and
+     its predecessor). With the fix in place, the real merge was
+     re-run against the pilot tenant's real data (`al_hafeez_campus`,
+     tenant 25): `Migrated 6 attendance types and 1124 student
+     attendance records for tenant 25.` — matching the source exactly
+     (6 `attendence_type` / 1124 `student_attendences` rows on both
+     sides), spot-checked by admission_no/date/type against the
+     source, and verified end to end via `PilotAttendance` (1,124
+     `<li>` entries, each with a real non-"Unknown" student name,
+     date, and attendance type).
    - **Stage 5+ — exams** — not yet planned.
 
 3. **Phase 3 — Retrofit remaining modules** (not yet planned)

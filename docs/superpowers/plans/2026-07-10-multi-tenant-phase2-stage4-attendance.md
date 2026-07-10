@@ -1066,7 +1066,7 @@ git commit -m "feat: add PilotAttendance controller showing tenant-scoped attend
 
 **Interfaces:** none (runs existing tools against real data).
 
-- [ ] **Step 1: Run the real merge for `al_hafeez_campus`**
+- [x] **Step 1: Run the real merge for `al_hafeez_campus`**
 
 ```bash
 "C:\xampp81\php\php.exe" tools/multitenant/MergeAttendanceData.php al_hafeez_campus 25
@@ -1081,7 +1081,7 @@ known reason for a gap here, since `student_attendences` only depends on
 `student_session` — already fully migrated with all 484 rows in Stage
 3 — and `attendence_type`, migrated fresh in this same run).
 
-- [ ] **Step 2: Verify row counts match source**
+- [x] **Step 2: Verify row counts match source**
 
 ```bash
 "C:\xampp81\mysql\bin\mysql.exe" -u root al_hafeez_campus -e "SELECT COUNT(*) FROM attendence_type; SELECT COUNT(*) FROM student_attendences;"
@@ -1090,14 +1090,14 @@ known reason for a gap here, since `student_attendences` only depends on
 
 Expected: matching counts (6/1124 both sides).
 
-- [ ] **Step 3: Spot-check 2-3 real attendance records**
+- [x] **Step 3: Spot-check 2-3 real attendance records**
 
 Pick a few rows from `al_hafeez_campus.student_attendences`, join through
 to get the real student admission_no, date, and attendance type name, and
 confirm the same admission_no/date/type combination appears in
 `school_saas` for tenant 25.
 
-- [ ] **Step 4: Manual end-to-end verification**
+- [x] **Step 4: Manual end-to-end verification**
 
 ```bash
 curl -s -c /tmp/pilotattendance_cookies.txt -b /tmp/pilotattendance_cookies.txt "http://localhost/web-app/pilotstudents/login_as/25"
@@ -1108,7 +1108,7 @@ Expected: HTML listing real student names with real dates and real
 attendance type names (Present/Absent/Late/etc.) — no "Unknown"
 anywhere. Count the `<li>` entries — should be 1124.
 
-- [ ] **Step 5: Mark this plan complete in the roadmap**
+- [x] **Step 5: Mark this plan complete in the roadmap**
 
 Add a line under Phase 2 → Stage 4 in
 `docs/superpowers/plans/2026-07-08-multi-tenant-migration-roadmap.md`,
