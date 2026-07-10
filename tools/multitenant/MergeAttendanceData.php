@@ -25,10 +25,12 @@ final class MergeAttendanceData extends AbstractTenantMerger
         );
 
         $rowsToInsert = [];
+        $skipped = 0;
         foreach ($attendances as $row) {
             $oldSessionId = (int) $row['student_session_id'];
             $oldTypeId = (int) $row['attendence_type_id'];
             if (!isset($sessionMap[$oldSessionId]) || !$typeRemap->hasMapping($oldTypeId)) {
+                $skipped++;
                 continue;
             }
             $row['student_session_id'] = $sessionMap[$oldSessionId];
@@ -49,6 +51,8 @@ final class MergeAttendanceData extends AbstractTenantMerger
         return [
             'attendence_types_migrated' => count($types),
             'student_attendences_migrated' => count($rowsToInsert),
+            'student_attendences_source_total' => count($attendances),
+            'student_attendences_skipped' => $skipped,
         ];
     }
 }
@@ -71,4 +75,8 @@ if (PHP_SAPI === 'cli' && basename(__FILE__) === basename($argv[0] ?? '')) {
     $result = $merger->run();
 
     echo "Migrated {$result['attendence_types_migrated']} attendance types and {$result['student_attendences_migrated']} student attendance records for tenant {$tenantId}.\n";
+
+    if ($result['student_attendences_skipped'] > 0) {
+        fwrite(STDERR, "WARNING: {$result['student_attendences_skipped']} of {$result['student_attendences_source_total']} student attendance records could not be resolved and were skipped. Investigate before trusting this migration.\n");
+    }
 }

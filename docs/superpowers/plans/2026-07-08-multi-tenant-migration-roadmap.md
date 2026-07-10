@@ -105,15 +105,20 @@ made.
      `2026-07-10-multi-tenant-phase2-stage4-attendance.md`). Migrates
      `attendence_type` + `student_attendences` (1,124 real rows in
      `al_hafeez_campus`). Introduces `StudentSessionIdResolver`
-     (composite `admission_no`/`class`/`section` key) to reconnect
-     attendance to Stage 3's `student_session` rows, with collision
-     detection built in from the start this time. Proven via a new
-     `PilotAttendance` controller. `staff_attendance` and
-     `student_subject_attendances` deferred (0 rows currently, nothing
-     real to prove). **First attempt correctly blocked** on an
-     ambiguous natural-key collision in `NaturalKeyIdResolver`
-     (fixed and independently reviewed twice — commit `48332594` and
-     its predecessor). With the fix in place, the real merge was
+     (composite `admission_no`/`class`/`section`/`created_at` key,
+     `created_at` verified preserved identically between source and
+     target by Stage 3) to reconnect attendance to Stage 3's
+     `student_session` rows, with collision detection built in from the
+     start this time. Proven via a new `PilotAttendance` controller.
+     `staff_attendance` and `student_subject_attendances` deferred (0
+     rows currently, nothing real to prove). **First attempt correctly
+     blocked** on an ambiguous natural-key collision in
+     `StudentSessionIdResolver` — an initial fix that filtered to
+     `is_active='yes'` was itself caught as wrong (every real row is
+     `is_active='no'`, so it silently produced an empty map / 0
+     migrated rows while still reporting success) before the
+     `created_at`-keyed fix was applied and independently reviewed
+     (commit `48332594` and its predecessor). With the fix in place, the real merge was
      re-run against the pilot tenant's real data (`al_hafeez_campus`,
      tenant 25): `Migrated 6 attendance types and 1124 student
      attendance records for tenant 25.` — matching the source exactly
@@ -171,5 +176,9 @@ made.
   `section_id` reference `classes(id)`/`sections(id)` by id alone, not
   `(tenant_id, id)`. Safe today with one tenant; once a second tenant
   exists, nothing at the DB level stops a cross-tenant reference — only
-  the merge tool's own remap logic prevents it. Worth a composite FK
+  the merge tool's own remap logic prevents it. The same shape recurs
+  in `sql/multitenant/005_add_attendance_tables.sql`:
+  `fk_studentattendences_type` and `fk_studentattendences_session`
+  likewise reference `attendence_type(id)`/`student_session(id)` alone,
+  not `(tenant_id, id)` — same accepted debt. Worth a composite FK
   before Phase 5 migrates additional schools.

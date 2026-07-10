@@ -72,6 +72,7 @@ final class MergeAttendanceDataTest extends TestCase
 
         $this->assertSame(1, $result['attendence_types_migrated']);
         $this->assertSame(1, $result['student_attendences_migrated']);
+        $this->assertSame(0, $result['student_attendences_skipped']);
 
         $type = $this->target->query('SELECT * FROM attendence_type')->fetch(PDO::FETCH_ASSOC);
         $attendance = $this->target->query('SELECT * FROM student_attendences')->fetch(PDO::FETCH_ASSOC);
@@ -96,6 +97,8 @@ final class MergeAttendanceDataTest extends TestCase
 
         $this->assertSame(1, $result['attendence_types_migrated']);
         $this->assertSame(0, $result['student_attendences_migrated']);
+        $this->assertSame(1, $result['student_attendences_source_total']);
+        $this->assertSame(1, $result['student_attendences_skipped']);
         $count = (int) $this->target->query('SELECT COUNT(*) FROM student_attendences')->fetchColumn();
         $this->assertSame(0, $count);
     }
