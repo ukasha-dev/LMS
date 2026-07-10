@@ -92,18 +92,47 @@ class Student extends Admin_Controller
         $data['gradeList'] = $this->grade_model->get();
         $studentSession    = $this->student_model->getStudentSession($id);
 
+        if (empty($student) || !is_array($student)) {
+            $student = $this->db->get_where('students', array('id' => (int)$id))->row_array();
+            if (empty($student)) {
+                show_404();
+                return;
+            }
+
+            $current_session_id = $this->setting_model->getCurrentSession();
+            $session_row = $this->db->get_where('student_session', array(
+                'student_id' => (int)$id,
+                'session_id' => $current_session_id
+            ))->row_array();
+
+            if (empty($session_row)) {
+                $this->db->from('student_session');
+                $this->db->where('student_id', (int)$id);
+                $this->db->order_by('id', 'DESC');
+                $this->db->limit(1);
+                $session_row = $this->db->get()->row_array();
+            }
+
+            $student['student_session_id'] = (!empty($session_row['id'])) ? (int)$session_row['id'] : 0;
+            $student['class_id'] = (!empty($session_row['class_id'])) ? (int)$session_row['class_id'] : 0;
+            $student['section_id'] = (!empty($session_row['section_id'])) ? (int)$session_row['section_id'] : 0;
+            $student['route_pickup_point_id'] = (!empty($session_row['route_pickup_point_id'])) ? (int)$session_row['route_pickup_point_id'] : 0;
+        }
+
+        $student_session_id = (!empty($student['student_session_id'])) ? (int)$student['student_session_id'] : 0;
+
         $data["timeline_list"] = $this->timeline_model->getStudentTimeline($id, $status = '');
 
         $data['sch_setting'] = $this->sch_setting_detail;
 
         $data['adm_auto_insert']      = $this->sch_setting_detail->adm_auto_insert;
         $data['student_timeline']     = $this->sch_setting_detail->student_timeline;
-        $data["session"]              = $studentSession["session"];
-        $student_due_fee              = $this->studentfeemaster_model->getStudentFees($student['student_session_id']);
-        $student_discount_fee         = $this->feediscount_model->getStudentFeesDiscount($student['student_session_id']);
+        $data["session"]              = (!empty($studentSession) && isset($studentSession["session"])) ? $studentSession["session"] : "";
+        $student_due_fee              = ($student_session_id > 0) ? $this->studentfeemaster_model->getStudentFees($student_session_id) : array();
+        $student_discount_fee         = ($student_session_id > 0) ? $this->feediscount_model->getStudentFeesDiscount($student_session_id) : array();
         $data['student_discount_fee'] = $student_discount_fee;
         $data['student_due_fee']      = $student_due_fee;
-        $data['siblings']             = $this->student_model->getMySiblings($student['parent_id'], $student['id']);
+        $data['siblings']             = $this->student_model->getMySiblings((isset($student['parent_id']) ? $student['parent_id'] : 0), (isset($student['id']) ? $student['id'] : 0));
 
         $data['student_doc'] = $this->student_model->getstudentdoc($id);
 
@@ -137,7 +166,7 @@ class Student extends Admin_Controller
             $this->load->model("cbseexam/cbseexam_assessment_model");
 
 
-            $exam_list = $this->cbseexam_exam_model->getStudentExamByStudentSession($student['student_session_id']);
+            $exam_list = ($student_session_id > 0) ? $this->cbseexam_exam_model->getStudentExamByStudentSession($student_session_id) : array();
 
             $student_exams = [];
             if (!empty($exam_list)) {
@@ -234,9 +263,9 @@ class Student extends Admin_Controller
         // ------------- CBSE Exam End---------------------
 
         $module = $this->module_model->getPermissionByModulename('transport');
-        if ($module['is_active']) {
-
-            $transport_fees = $this->studentfeemaster_model->getStudentTransportFees($student['student_session_id'], $student['route_pickup_point_id']);
+        if (!empty($module['is_active']) && $student_session_id > 0) {
+            $route_pickup_point_id = !empty($student['route_pickup_point_id']) ? (int)$student['route_pickup_point_id'] : 0;
+            $transport_fees = $this->studentfeemaster_model->getStudentTransportFees($student_session_id, $route_pickup_point_id);
         }
 
         $data['transport_fees'] = $transport_fees;
@@ -246,10 +275,10 @@ class Student extends Admin_Controller
 
         $data['student'] = $student;
 
-        $data["class_section"] = $this->student_model->getClassSection($student["class_id"]);
+        $data["class_section"] = $this->student_model->getClassSection((isset($student["class_id"]) ? $student["class_id"] : 0));
         $session               = $this->setting_model->getCurrentSession();
 
-        $data["studentlistbysection"] = $this->student_model->getStudentClassSection($student["class_id"], $session);
+        $data["studentlistbysection"] = $this->student_model->getStudentClassSection((isset($student["class_id"]) ? $student["class_id"] : 0), $session);
 
         $data['guardian_credential'] = $this->student_model->guardian_credential($student['parent_id']);
 
@@ -259,7 +288,7 @@ class Student extends Admin_Controller
             $data['reason_data'] = $this->disable_reason_model->get($student['dis_reason']);
         }
 
-        $data['exam_result'] = $this->examgroupstudent_model->searchStudentExams($student['student_session_id'], true, true);
+        $data['exam_result'] = ($student_session_id > 0) ? $this->examgroupstudent_model->searchStudentExams($student_session_id, true, true) : array();
         $data['exam_grade']  = $this->grade_model->getGradeDetails();
 
         $data['yearlist'] = $this->stuattendence_model->attendanceYearCount();
@@ -286,7 +315,8 @@ class Student extends Admin_Controller
         $session_year_start = date("Y-m-01", strtotime($start_year . '-' . $start_end_month[0] . '-01'));
         $session_year_end   = date("Y-m-t", strtotime($Next_year . '-' . $start_end_month[1] . '-01'));
 
-        $data["countAttendance"] = $this->countAttendance($session_year_start, $student['student_session_id']);
+        $data["countAttendance"] = ($student_session_id > 0) ? $this->countAttendance($session_year_start, $student_session_id) : array();
+        $res = array();
 
         foreach ($monthlist as $key => $value) {
 
@@ -303,7 +333,7 @@ class Student extends Admin_Controller
                 $att_dates          = $start_year . "-" . $datemonth . "-" . sprintf("%02d", $n);
 
                 $date_array[]    = $att_dates;
-                $res[$att_dates] = $this->stuattendence_model->studentattendance($att_dates, $student['student_session_id']);
+                $res[$att_dates] = ($student_session_id > 0) ? $this->stuattendence_model->studentattendance($att_dates, $student_session_id) : array();
             }
 
             $start_year = ($datemonth == 12) ? $Next_year : $start_year;
@@ -482,13 +512,15 @@ class Student extends Admin_Controller
         if ($this->sch_setting_detail->guardian_phone) {
             $this->form_validation->set_rules('guardian_phone', $this->lang->line('guardian_phone'), 'trim|required|xss_clean');
         }
+        if ($this->sch_setting_detail->guardian_address) {
+            $this->form_validation->set_rules('guardian_address', $this->lang->line('guardian_address'), 'trim|required|xss_clean');
+        }
 
         $this->form_validation->set_rules(
             'email',
             $this->lang->line('email'),
             array(
                 'valid_email',
-                array('check_student_email_exists', array($this->student_model, 'check_student_email_exists')),
             )
         );
 
@@ -497,11 +529,22 @@ class Student extends Admin_Controller
             $this->lang->line('mobile_no'),
             array(
                 'xss_clean',
-                array('check_student_mobile_exists', array($this->student_model, 'check_student_mobile_no_exists')),
             )
         );
 
-        $sibling_id         = $this->input->post('sibling_id');
+        $sibling_id_post    = $this->input->post('sibling_id');
+        $sibling_id         = 0;
+        if (is_array($sibling_id_post)) {
+            foreach ($sibling_id_post as $sibling_value) {
+                if (is_numeric($sibling_value) && (int)$sibling_value > 0) {
+                    $sibling_id = (int)$sibling_value;
+                    break;
+                }
+            }
+        } elseif (is_numeric($sibling_id_post) && (int)$sibling_id_post > 0) {
+            $sibling_id = (int)$sibling_id_post;
+        }
+
         if ($sibling_id > 0) {
         } else {
             $this->form_validation->set_rules(
@@ -509,7 +552,6 @@ class Student extends Admin_Controller
                 $this->lang->line('guardian_email'),
                 array(
                     'valid_email',
-                    array('check_guardian_email_exists', array($this->student_model, 'check_guardian_email_exists')),
                 )
             );
         }
@@ -802,7 +844,6 @@ class Student extends Admin_Controller
 
 						$user_password = $this->role->get_random_password($chars_min = 6, $chars_max = 6, $use_upper_case = false, $include_numbers = true, $include_special_chars = false);
 		
-						$sibling_id         = $this->input->post('sibling_id');
 						$data_student_login = array(
 							'username' => $this->student_login_prefix . $insert_id,
 							'password' => $user_password,
@@ -1421,7 +1462,6 @@ class Student extends Admin_Controller
             $this->lang->line('email'),
             array(
                 'valid_email',
-                array('check_student_email_exists', array($this->student_model, 'check_student_email_exists')),
             )
         );
 
@@ -1430,7 +1470,6 @@ class Student extends Admin_Controller
             $this->lang->line('mobile_no'),
             array(
                 'xss_clean',
-                array('check_student_mobile_exists', array($this->student_model, 'check_student_mobile_no_exists')),
             )
         );
 
@@ -1810,6 +1849,86 @@ class Student extends Admin_Controller
         $this->load->view('layout/header', $data);
         $this->load->view('student/studentSearch', $data);
         $this->load->view('layout/footer', $data);
+    }
+
+    public function filteredstudentdetails()
+    {
+        if (!$this->rbac->hasPrivilege('student', 'can_view')) {
+            access_denied();
+        }
+
+        $this->session->set_userdata('top_menu', 'Student Information');
+        $this->session->set_userdata('sub_menu', 'student/search');
+
+        $field_options = $this->getFilteredStudentFieldOptions();
+        $default_fields = array_keys($field_options);
+
+        $campus_id = $this->input->post('campus_id');
+        $campus_id = ($campus_id === null) ? '' : trim((string) $campus_id);
+
+        $class_id = trim((string) $this->input->post('class_id'));
+        $section_id = trim((string) $this->input->post('section_id'));
+
+        if ($campus_id === '') {
+            $class_id = '';
+            $section_id = '';
+        }
+
+        $selected_fields = $this->normalizeSelectedValues($this->input->post('display_fields'), $default_fields, $default_fields);
+        $gender = $this->normalizeSelectedValues($this->input->post('gender'), array('male', 'female'), array('male', 'female'));
+
+        $filters = array(
+            'campus_id' => $campus_id,
+            'class_id' => $class_id,
+            'section_id' => $section_id,
+            'display_fields' => $selected_fields,
+            'gender' => $gender,
+        );
+
+        $data = array();
+        $data['title'] = 'Filtered Student Details';
+        $data['sch_setting'] = $this->sch_setting_detail;
+        $data['filters'] = $filters;
+        $data['field_options'] = $field_options;
+        $data['campus_list'] = $this->getFilteredCampusOptions();
+        $data['classlist'] = $this->getFilteredCampusClassList($campus_id);
+        $data['sectionlist'] = (!empty($campus_id) && !empty($class_id)) ? $this->getFilteredCampusSectionList($campus_id, $class_id) : array();
+        $data['students'] = $this->getFilteredStudentRows($filters);
+
+        $this->load->view('layout/header', $data);
+        $this->load->view('student/filteredStudentDetails', $data);
+        $this->load->view('layout/footer', $data);
+    }
+
+    public function getFilteredClassesByCampus()
+    {
+        if (!$this->rbac->hasPrivilege('student', 'can_view')) {
+            access_denied();
+        }
+
+        $campus_id = trim((string) $this->input->get_post('campus_id'));
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode($this->getFilteredCampusClassList($campus_id)));
+    }
+
+    public function getFilteredSectionsByCampus()
+    {
+        if (!$this->rbac->hasPrivilege('student', 'can_view')) {
+            access_denied();
+        }
+
+        $campus_id = trim((string) $this->input->get_post('campus_id'));
+        $class_id = trim((string) $this->input->get_post('class_id'));
+        $sections = array();
+
+        if ($campus_id !== '' && $class_id !== '') {
+            $sections = $this->getFilteredCampusSectionList($campus_id, $class_id);
+        }
+
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode($sections));
     }
 
     public function ajaxsearch()
@@ -2475,6 +2594,364 @@ class Student extends Admin_Controller
             $array  = array('status' => 1, 'error' => '', 'params' => $params);
             echo json_encode($array);
         }
+    }
+
+    private function getFilteredStudentFieldOptions()
+    {
+        return array(
+            'admission_no' => 'Admission No',
+            'admission_date' => 'Admission Date',
+            'student_name' => 'Student Name',
+            'profile_student_photo' => 'Student Photo',
+            'roll_no' => 'Roll No',
+            'class' => 'Class',
+            'dob' => 'Date of Birth',
+            'category' => 'Category',
+            'mobile' => 'Mobile Number',
+            'address' => 'Address',
+            'father_name' => 'Father Name',
+            'father_phone' => 'Father Phone',
+            'mother_name' => 'Mother Name',
+            'mother_phone' => 'Mother Phone',
+            'guardian_name' => 'Guardian Name',
+            'guardian_phone' => 'Guardian Phone',
+            'guardian_address' => 'Guardian Address',
+            'guardian_relation' => 'Guardian Relation',
+            'gender' => 'Gender',
+        );
+    }
+
+    private function normalizeSelectedValues($values, $allowed_values, $default_values)
+    {
+        if (!is_array($values)) {
+            return $default_values;
+        }
+
+        $normalized = array();
+        foreach ($values as $value) {
+            $value = strtolower(trim((string) $value));
+            if ($value !== '' && in_array($value, $allowed_values, true)) {
+                $normalized[] = $value;
+            }
+        }
+
+        $normalized = array_values(array_unique($normalized));
+        if (empty($normalized)) {
+            return $default_values;
+        }
+
+        return $normalized;
+    }
+
+    private function getFilteredStudentRows($filters = array())
+    {
+        $campus_id = isset($filters['campus_id']) ? trim((string) $filters['campus_id']) : '';
+        $class_id = isset($filters['class_id']) ? trim((string) $filters['class_id']) : '';
+        $section_id = isset($filters['section_id']) ? trim((string) $filters['section_id']) : '';
+        $gender = isset($filters['gender']) && is_array($filters['gender']) ? $filters['gender'] : array('male', 'female');
+        $rows = array();
+        $campuses = $this->getSelectedCampusesForFilteredStudents($campus_id);
+        foreach ($campuses as $campus) {
+            $campus_rows = $this->getFilteredStudentRowsForCampus($campus, $class_id, $section_id, $gender);
+            if (!empty($campus_rows)) {
+                $rows = array_merge($rows, $campus_rows);
+            }
+        }
+
+        return $rows;
+    }
+
+    private function getFilteredStudentRowsForCampus($campus, $class_id = '', $section_id = '', $gender = array('male', 'female'))
+    {
+        $campus_rows = array();
+        $campus_id = isset($campus['id']) ? (string) $campus['id'] : '0';
+        $campus_name = isset($campus['name']) ? $campus['name'] : $this->getFilteredCampusNameById($campus_id);
+        $db = $this->getFilteredCampusDbById($campus_id);
+
+        if (!$db || !$db->conn_id) {
+            return $campus_rows;
+        }
+
+        if (!$db->table_exists('students') || !$db->table_exists('student_session') || !$db->table_exists('classes') || !$db->table_exists('sections')) {
+            return $campus_rows;
+        }
+
+        $current_session = (int) $this->setting_model->getCurrentSession();
+        $db->select('ss.id as student_session_id, students.id as student_id, students.admission_no, students.admission_date, students.firstname, students.middlename, students.lastname, students.roll_no, students.dob, students.mobileno, students.current_address, students.father_name, students.father_phone, students.mother_name, students.mother_phone, students.guardian_name, students.guardian_phone, students.guardian_address, students.guardian_relation, students.image, students.is_active, students.gender, classes.class as class_name, sections.section as section_name, IFNULL(categories.category, "") as category');
+
+        $db->from('students');
+        $db->join('student_session ss', 'ss.student_id = students.id');
+        $db->join('classes', 'ss.class_id = classes.id');
+        $db->join('sections', 'ss.section_id = sections.id');
+        if ($db->table_exists('categories')) {
+            $db->join('categories', 'students.category_id = categories.id', 'left');
+        }
+
+        $db->where('ss.session_id', $current_session);
+        if ($class_id !== '') {
+            $db->where('ss.class_id', (int) $class_id);
+        }
+        if ($section_id !== '') {
+            $db->where('ss.section_id', (int) $section_id);
+        }
+
+        $gender = array_values(array_unique(array_map('strtolower', $gender)));
+        sort($gender);
+        if ($gender === array('female') || $gender === array('male')) {
+            $escaped_gender = array();
+            foreach ($gender as $single_gender) {
+                $escaped_gender[] = $db->escape($single_gender);
+            }
+            $db->where('LOWER(students.gender) IN (' . implode(',', $escaped_gender) . ')', null, false);
+        }
+
+        $db->where("LOWER(students.is_active) = 'yes'", null, false);
+
+        $db->order_by('classes.class', 'asc');
+        $db->order_by('sections.section', 'asc');
+        $db->order_by('students.admission_no', 'asc');
+
+        $result = $db->get()->result_array();
+        foreach ($result as $row) {
+            $campus_rows[] = array(
+                'campus' => $campus_name,
+                'admission_no' => $row['admission_no'],
+                'admission_date' => $row['admission_date'],
+                'student_name' => $this->customlib->getFullName($row['firstname'], $row['middlename'], $row['lastname'], $this->sch_setting_detail->middlename, $this->sch_setting_detail->lastname),
+                'profile_student_photo' => $this->getFilteredStudentPhotoFileName(isset($row['image']) ? $row['image'] : ''),
+                'roll_no' => $row['roll_no'],
+                'class' => $row['class_name'] . (!empty($row['section_name']) ? ' (' . $row['section_name'] . ')' : ''),
+                'dob' => $row['dob'],
+                'category' => $row['category'],
+                'mobile' => $row['mobileno'],
+                'address' => $row['current_address'],
+                'father_name' => $row['father_name'],
+                'father_phone' => $row['father_phone'],
+                'mother_name' => $row['mother_name'],
+                'mother_phone' => $row['mother_phone'],
+                'guardian_name' => $row['guardian_name'],
+                'guardian_phone' => $row['guardian_phone'],
+                'guardian_address' => $row['guardian_address'],
+                'guardian_relation' => $row['guardian_relation'],
+                'gender' => $row['gender'],
+            );
+        }
+
+        return $campus_rows;
+    }
+
+    private function getFilteredStudentPhotoFileName($image_path = '')
+    {
+        $image_path = trim((string) $image_path);
+        if ($image_path === '') {
+            return '';
+        }
+
+        $file_name = basename($image_path);
+        $lower_file_name = strtolower($file_name);
+        if ($lower_file_name === 'default_male.jpg' || $lower_file_name === 'default_female.jpg' || $lower_file_name === 'no_image.png') {
+            return '';
+        }
+
+        return $file_name;
+    }
+
+    private function getFilteredCampusOptions()
+    {
+        $campuses = array(
+            array(
+                'id' => '',
+                'name' => 'All Campus',
+            ),
+            array(
+                'id' => '0',
+                'name' => $this->getFilteredHomeCampusLabel(),
+            ),
+        );
+
+        if ($this->db->table_exists('multi_branch')) {
+            $this->load->model('multibranch/multibranch_model');
+            $branches = $this->multibranch_model->get();
+            foreach ($branches as $branch) {
+                $campuses[] = array(
+                    'id' => (string) $branch->id,
+                    'name' => $branch->branch_name,
+                );
+            }
+        }
+
+        return $campuses;
+    }
+
+    private function getSelectedCampusesForFilteredStudents($campus_id = '')
+    {
+        if ($campus_id !== '') {
+            return array(
+                array(
+                    'id' => $campus_id,
+                    'name' => $this->getFilteredCampusNameById($campus_id),
+                ),
+            );
+        }
+
+        return $this->getFilteredCampusOptionsForQuery();
+    }
+
+    private function getFilteredCampusOptionsForQuery()
+    {
+        $campuses = array(
+            array(
+                'id' => '0',
+                'name' => $this->getFilteredHomeCampusLabel(),
+            ),
+        );
+
+        if ($this->db->table_exists('multi_branch')) {
+            $this->load->model('multibranch/multibranch_model');
+            $branches = $this->multibranch_model->get();
+            foreach ($branches as $branch) {
+                $campuses[] = array(
+                    'id' => (string) $branch->id,
+                    'name' => $branch->branch_name,
+                );
+            }
+        }
+
+        return $campuses;
+    }
+
+    private function getFilteredHomeCampusLabel()
+    {
+        $default_db = $this->getFilteredDefaultCampusDb();
+        if ($default_db && $default_db->conn_id && $default_db->table_exists('sch_settings')) {
+            $school = $default_db->select('name')->from('sch_settings')->order_by('id', 'asc')->limit(1)->get()->row();
+            if ($school && !empty($school->name)) {
+                return $school->name;
+            }
+        }
+
+        return !empty($this->sch_setting_detail->name) ? $this->sch_setting_detail->name : 'Main Campus';
+    }
+
+    private function getFilteredDefaultCampusDb()
+    {
+        return $this->load->database('default', true);
+    }
+
+    private function getFilteredCampusNameById($campus_id)
+    {
+        if ($campus_id === '' || $campus_id === '0') {
+            return $this->getFilteredHomeCampusLabel();
+        }
+
+        if ($this->db->table_exists('multi_branch')) {
+            $this->load->model('multibranch/multibranch_model');
+            $branch = $this->multibranch_model->get((int) $campus_id);
+            if ($branch) {
+                return $branch->branch_name;
+            }
+        }
+
+        return 'Campus';
+    }
+
+    private function getFilteredCampusDbById($campus_id = '0')
+    {
+        if ($campus_id === '' || $campus_id === '0') {
+            return $this->getFilteredDefaultCampusDb();
+        }
+
+        if (!$this->db->table_exists('multi_branch')) {
+            return null;
+        }
+
+        $this->load->model('multibranch/multibranch_model');
+        $branch = $this->multibranch_model->get((int) $campus_id);
+        if (!$branch) {
+            return null;
+        }
+
+        $config_db = array(
+            'dsn' => '',
+            'hostname' => $branch->hostname,
+            'username' => $branch->username,
+            'password' => $branch->password,
+            'database' => $branch->database_name,
+            'dbdriver' => 'mysqli',
+            'dbprefix' => '',
+            'pconnect' => false,
+            'db_debug' => false,
+            'cache_on' => false,
+            'cachedir' => '',
+            'char_set' => 'utf8',
+            'dbcollat' => 'utf8_general_ci',
+            'swap_pre' => '',
+            'encrypt' => false,
+            'compress' => false,
+            'stricton' => false,
+            'failover' => array(),
+            'save_queries' => true,
+        );
+
+        return $this->load->database($config_db, true);
+    }
+
+    private function getFilteredCampusClassList($campus_id = '')
+    {
+        if ($campus_id === '') {
+            return array();
+        }
+
+        if ($campus_id === '0') {
+            $default_db = $this->getFilteredDefaultCampusDb();
+            if (!$default_db || !$default_db->conn_id) {
+                return array();
+            }
+
+            return $default_db->order_by('class', 'asc')->get('classes')->result_array();
+        }
+
+        $db = $this->getFilteredCampusDbById($campus_id);
+        if (!$db || !$db->conn_id) {
+            return array();
+        }
+
+        return $db->order_by('class', 'asc')->get('classes')->result_array();
+    }
+
+    private function getFilteredCampusSectionList($campus_id = '', $class_id = null)
+    {
+        if ($campus_id === '' || empty($class_id)) {
+            return array();
+        }
+
+        if ($campus_id === '0') {
+            $default_db = $this->getFilteredDefaultCampusDb();
+            if (!$default_db || !$default_db->conn_id) {
+                return array();
+            }
+
+            return $default_db->select('sections.id as section_id, sections.section')
+                ->from('class_sections')
+                ->join('sections', 'sections.id = class_sections.section_id')
+                ->where('class_sections.class_id', $class_id)
+                ->order_by('sections.section', 'asc')
+                ->get()
+                ->result_array();
+        }
+
+        $db = $this->getFilteredCampusDbById($campus_id);
+        if (!$db || !$db->conn_id) {
+            return array();
+        }
+
+        return $db->select('sections.id as section_id, sections.section')
+            ->from('class_sections')
+            ->join('sections', 'sections.id = class_sections.section_id')
+            ->where('class_sections.class_id', $class_id)
+            ->order_by('sections.section', 'asc')
+            ->get()
+            ->result_array();
     }
 
     public function getStudentByClassSection()

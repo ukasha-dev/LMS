@@ -915,13 +915,26 @@ class Customlib
 
     public function getAppName()
     {
-        $admin = $this->CI->session->userdata('admin');
-        if ($admin) {
-            return $admin['sch_name'];
-        } else if ($this->CI->session->userdata('student')) {
-            $student = $this->CI->session->userdata('student');
-            return $student['sch_name'];
+        if (isset($this->CI->Setting_model)) {
+            $school_name = $this->CI->Setting_model->getCurrentSchoolName();
+            if (!empty($school_name)) {
+                return $school_name;
+            }
         }
+
+        $admin = $this->CI->session->userdata('admin');
+        if ($admin && isset($admin['sch_name'])) {
+            return $admin['sch_name'];
+        }
+
+        if ($this->CI->session->userdata('student')) {
+            $student = $this->CI->session->userdata('student');
+            if (isset($student['sch_name'])) {
+                return $student['sch_name'];
+            }
+        }
+
+        return '';
     }
 
     public function getStaffRole()

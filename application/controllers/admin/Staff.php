@@ -29,6 +29,7 @@ class Staff extends Admin_Controller
         $this->payment_mode       = $this->config->item('payment_mode');
         $this->status             = $this->config->item('status');
         $this->sch_setting_detail = $this->setting_model->getSetting();
+        $this->load->model("multibranch/multibranch_model");
     }
 
     public function index()
@@ -1682,6 +1683,426 @@ class Staff extends Admin_Controller
     {
         $this->staff_model->rating_remove($id);
         redirect('admin/staff/rating');
+    }
+
+    public function campus_transfer_search()
+    {
+        if (!$this->rbac->hasPrivilege('staff', 'can_view')) {
+            access_denied();
+        }
+
+        $this->session->set_userdata('top_menu', 'HR');
+        $this->session->set_userdata('sub_menu', 'admin/staff/campus_transfer_search');
+
+        $db_group = $this->session->userdata['admin']['db_array']['db_group'];
+        $active_branch_id = 0;
+        if ($db_group != 'default' && !empty($db_group)) {
+            $active_branch_id = (int) filter_var($db_group, FILTER_SANITIZE_NUMBER_INT);
+        }
+
+        $branches = $this->multibranch_model->get();
+        $data['branchlist'] = array();
+
+        if ($active_branch_id > 0) {
+            $main_db = $this->load->database('default', true);
+            $main_setting = $main_db->select('name')->get('sch_settings')->row();
+            $main_campus_real_name = ($main_setting) ? $main_setting->name : "Main Campus";
+            $data['branchlist'][] = array(
+                'id' => 0,
+                'branch_name' => $main_campus_real_name . " (Main)"
+            );
+        }
+
+        if (!empty($branches)) {
+            foreach ($branches as $branch) {
+                if ((int) $branch->id === $active_branch_id) {
+                    continue;
+                }
+                $data['branchlist'][] = array(
+                    'id' => (int) $branch->id,
+                    'branch_name' => $branch->branch_name
+                );
+            }
+        }
+
+        $data['role'] = $this->staff_model->getStaffRole();
+        $data['resultlist'] = $this->staff_model->searchFullText("", 1);
+        $search = $this->input->post("search");
+        if ($search == 'search_filter') {
+            $role = $this->input->post('role');
+            if (!empty($role)) {
+                $data['resultlist'] = $this->staff_model->getEmployee($role, 1);
+            }
+        } else if ($search == 'search_full') {
+            $search_text = trim($this->input->post('search_text'));
+            $data['resultlist'] = $this->staff_model->searchFullText($search_text, 1);
+        }
+
+        $this->load->view('layout/header');
+        $this->load->view('admin/staff/campus_transfer', $data);
+        $this->load->view('layout/footer');
+    }
+
+    public function move_to_campus()
+    {
+        $target_branch_id = $this->input->post('target_branch_id');
+        $staff_ids = $this->input->post('staff_list');
+
+        if (empty($staff_ids)) {
+            echo json_encode(array("status" => "fail", "msg" => "No staff selected."));
+            return;
+        }
+
+        if ($target_branch_id == '0') {
+            $target_db = $this->load->database('default', true);
+        } else {
+            $branch = $this->multibranch_model->get($target_branch_id);
+            if (!$branch) {
+                echo json_encode(array("status" => "fail", "msg" => "Branch records not found in system."));
+                return;
+            }
+
+            $config_target = array(
+                'hostname' => $branch->hostname,
+                'username' => $branch->username,
+                'password' => $branch->password,
+                'database' => $branch->database_name,
+                'dbdriver' => 'mysqli',
+                'pconnect' => false,
+                'db_debug' => false
+            );
+            $target_db = $this->load->database($config_target, true);
+        }
+
+        if (!$target_db || !$target_db->conn_id) {
+            echo json_encode(array("status" => "fail", "msg" => "Cannot connect to Target Database."));
+            return;
+        }
+
+        $success_count = 0;
+        $linked_rows_migrated = 0;
+
+        foreach ($staff_ids as $staff_id) {
+            $staff_id = (int) $staff_id;
+            if ($staff_id <= 0) {
+                continue;
+            }
+
+            $staff_data = $this->db->get_where('staff', array('id' => $staff_id))->row_array();
+            if (!$staff_data) {
+                continue;
+            }
+
+            $old_staff_id = (int) $staff_data['id'];
+            $employee_id = isset($staff_data['employee_id']) ? trim((string) $staff_data['employee_id']) : '';
+            $email = isset($staff_data['email']) ? trim((string) $staff_data['email']) : '';
+            $is_exact_duplicate = false;
+            if ($employee_id !== '' && $email !== '') {
+                $is_exact_duplicate = $this->remove_target_staff_if_exact_duplicate($target_db, $employee_id, $email);
+            }
+
+            $employee_id_taken = $employee_id !== '' && $this->is_target_staff_employee_id_taken($target_db, $employee_id);
+            $email_taken = $email !== '' && $this->is_target_staff_email_taken($target_db, $email);
+            if (!$is_exact_duplicate && ($employee_id_taken || $email_taken)) {
+                $staff_data['employee_id'] = $this->generate_unique_staff_employee_id($target_db, $employee_id);
+            }
+            $mapped_role_id = $this->normalize_staff_reference_ids($target_db, $staff_data, $old_staff_id);
+            unset($staff_data['id']);
+
+            if (!$target_db->insert('staff', $staff_data)) {
+                continue;
+            }
+
+            $new_staff_id = (int) $target_db->insert_id();
+            $linked_rows_migrated += $this->migrate_staff_linked_data($target_db, $old_staff_id, $new_staff_id, $mapped_role_id);
+
+            $this->db->where('id', $old_staff_id)->update('staff', array(
+                'is_active' => 0
+            ));
+
+            $success_count++;
+        }
+
+        $target_db->close();
+
+        if ($success_count > 0) {
+            echo json_encode(array(
+                "status" => "success",
+                "msg" => $success_count . " Staff member(s) moved successfully. Linked records migrated: " . $linked_rows_migrated
+            ));
+        } else {
+            echo json_encode(array("status" => "fail", "msg" => "Transfer failed. No records were inserted."));
+        }
+    }
+
+    private function migrate_staff_linked_data($target_db, $old_staff_id, $new_staff_id, $mapped_role_id = 0)
+    {
+        $skip_tables = array('staff', 'staff_roles');
+        $migrated_rows = $this->copy_generic_staff_related_tables($target_db, $old_staff_id, $new_staff_id, $skip_tables);
+        $migrated_rows += $this->sync_staff_role_record($target_db, $old_staff_id, $new_staff_id, $mapped_role_id);
+        $migrated_rows += $this->copy_staff_user_record($target_db, $old_staff_id, $new_staff_id);
+        return $migrated_rows;
+    }
+
+    private function copy_generic_staff_related_tables($target_db, $old_staff_id, $new_staff_id, $skip_tables)
+    {
+        $inserted = 0;
+        $source_tables = $this->db->list_tables();
+        $target_tables = array_flip($target_db->list_tables());
+
+        foreach ($source_tables as $table) {
+            if (!isset($target_tables[$table]) || in_array($table, $skip_tables, true)) {
+                continue;
+            }
+
+            $source_fields = $this->db->list_fields($table);
+            $target_fields = $target_db->list_fields($table);
+            $has_staff_id = in_array('staff_id', $source_fields, true) && in_array('staff_id', $target_fields, true);
+
+            if (!$has_staff_id) {
+                continue;
+            }
+
+            $rows = $this->db->get_where($table, array('staff_id' => $old_staff_id))->result_array();
+            if (empty($rows)) {
+                continue;
+            }
+
+            $target_field_flip = array_flip($target_fields);
+
+            foreach ($rows as $row) {
+                if (isset($row['id'])) {
+                    unset($row['id']);
+                }
+                $row['staff_id'] = $new_staff_id;
+                $insert_data = array_intersect_key($row, $target_field_flip);
+
+                if (empty($insert_data)) {
+                    continue;
+                }
+
+                if ($target_db->insert($table, $insert_data)) {
+                    $inserted++;
+                }
+            }
+        }
+
+        return $inserted;
+    }
+
+    private function copy_staff_user_record($target_db, $old_staff_id, $new_staff_id)
+    {
+        $table = 'users';
+        if (!$this->db->table_exists($table) || !$target_db->table_exists($table)) {
+            return 0;
+        }
+
+        $target_fields = $target_db->list_fields($table);
+        $target_field_flip = array_flip($target_fields);
+        $user_row = $this->db->get_where($table, array('user_id' => $old_staff_id, 'role' => 'staff'))->row_array();
+
+        if (!$user_row) {
+            return 0;
+        }
+
+        if (isset($user_row['id'])) {
+            unset($user_row['id']);
+        }
+
+        $user_row['user_id'] = $new_staff_id;
+        $insert_data = array_intersect_key($user_row, $target_field_flip);
+
+        if (empty($insert_data)) {
+            return 0;
+        }
+
+        return $target_db->insert($table, $insert_data) ? 1 : 0;
+    }
+
+    private function remove_target_staff_if_exact_duplicate($target_db, $employee_id, $email = '')
+    {
+        if (empty($employee_id)) {
+            return false;
+        }
+
+        if (empty($email)) {
+            return false;
+        }
+
+        $query = $target_db->where('employee_id', $employee_id)->where('email', $email);
+        $existing_staff = $query->get('staff')->result_array();
+        if (empty($existing_staff)) {
+            return false;
+        }
+
+        foreach ($existing_staff as $staff_row) {
+            $target_staff_id = isset($staff_row['id']) ? (int) $staff_row['id'] : 0;
+            if ($target_staff_id <= 0) {
+                continue;
+            }
+
+            if ($target_db->table_exists('users')) {
+                $target_db->where('role', 'staff');
+                $target_db->where('user_id', $target_staff_id);
+                $target_db->delete('users');
+            }
+
+            $target_db->where('id', $target_staff_id);
+            $target_db->delete('staff');
+        }
+
+        return true;
+    }
+
+    private function is_target_staff_employee_id_taken($target_db, $employee_id)
+    {
+        if (empty($employee_id) || !$target_db->table_exists('staff')) {
+            return false;
+        }
+
+        return $target_db->where('employee_id', $employee_id)->count_all_results('staff') > 0;
+    }
+
+    private function is_target_staff_email_taken($target_db, $email)
+    {
+        if (empty($email) || !$target_db->table_exists('staff')) {
+            return false;
+        }
+
+        return $target_db->where('email', $email)->count_all_results('staff') > 0;
+    }
+
+    private function generate_unique_staff_employee_id($target_db, $source_employee_id)
+    {
+        $source_employee_id = trim((string) $source_employee_id);
+        if ($source_employee_id === '') {
+            $source_employee_id = 'STAFF';
+        }
+
+        $prefix = $source_employee_id;
+        $number = '';
+        if (preg_match('/^(.*?)(\d+)$/', $source_employee_id, $matches)) {
+            $prefix = $matches[1];
+            $number = $matches[2];
+        }
+
+        $pad_length = strlen($number);
+        $base_number = ($number !== '') ? (int) $number : 1;
+        $candidate = $source_employee_id;
+        $attempt = 0;
+
+        while ($this->is_target_staff_employee_id_taken($target_db, $candidate)) {
+            $attempt++;
+            $next_number = $base_number + $attempt;
+            if ($pad_length > 0) {
+                $candidate = $prefix . sprintf('%0' . $pad_length . 'd', $next_number);
+            } else {
+                $candidate = $source_employee_id . '-' . $next_number;
+            }
+        }
+
+        return $candidate;
+    }
+
+    private function normalize_staff_reference_ids($target_db, &$staff_data, $old_staff_id)
+    {
+        $mapped_role_id = 0;
+
+        $source_department_id = isset($staff_data['department']) ? (int) $staff_data['department'] : 0;
+        if ($source_department_id > 0 && $this->db->table_exists('department') && $target_db->table_exists('department')) {
+            $source_department = $this->db->get_where('department', array('id' => $source_department_id))->row_array();
+            $source_department_name = ($source_department && isset($source_department['department_name'])) ? trim((string) $source_department['department_name']) : '';
+            $staff_data['department'] = $this->resolve_target_lookup_id($target_db, 'department', 'department_name', $source_department_name, $source_department_id);
+        }
+
+        $source_designation_id = isset($staff_data['designation']) ? (int) $staff_data['designation'] : 0;
+        if ($source_designation_id > 0 && $this->db->table_exists('staff_designation') && $target_db->table_exists('staff_designation')) {
+            $source_designation = $this->db->get_where('staff_designation', array('id' => $source_designation_id))->row_array();
+            $source_designation_name = ($source_designation && isset($source_designation['designation'])) ? trim((string) $source_designation['designation']) : '';
+            $staff_data['designation'] = $this->resolve_target_lookup_id($target_db, 'staff_designation', 'designation', $source_designation_name, $source_designation_id);
+        }
+
+        if ($this->db->table_exists('staff_roles') && $target_db->table_exists('roles')) {
+            $source_role = $this->db->get_where('staff_roles', array('staff_id' => $old_staff_id))->row_array();
+            $source_role_id = ($source_role && isset($source_role['role_id'])) ? (int) $source_role['role_id'] : 0;
+            if ($source_role_id > 0 && $this->db->table_exists('roles')) {
+                $source_role_row = $this->db->get_where('roles', array('id' => $source_role_id))->row_array();
+                $source_role_name = ($source_role_row && isset($source_role_row['name'])) ? trim((string) $source_role_row['name']) : '';
+                $mapped_role_id = $this->resolve_target_lookup_id($target_db, 'roles', 'name', $source_role_name, $source_role_id);
+            }
+        }
+
+        return (int) $mapped_role_id;
+    }
+
+    private function resolve_target_lookup_id($target_db, $table, $name_field, $source_name, $source_id = 0)
+    {
+        if (!$target_db->table_exists($table)) {
+            return (int) $source_id;
+        }
+
+        if ($source_name !== '') {
+            $target_db->where($name_field, $source_name);
+            $match = $target_db->get($table)->row_array();
+            if ($match && isset($match['id'])) {
+                return (int) $match['id'];
+            }
+        }
+
+        if ($source_id > 0) {
+            $by_id = $target_db->get_where($table, array('id' => $source_id))->row_array();
+            if ($by_id && isset($by_id['id'])) {
+                return (int) $by_id['id'];
+            }
+        }
+
+        $target_db->order_by('id', 'ASC');
+        $fallback = $target_db->get($table, 1)->row_array();
+        if ($fallback && isset($fallback['id'])) {
+            return (int) $fallback['id'];
+        }
+
+        return 0;
+    }
+
+    private function sync_staff_role_record($target_db, $old_staff_id, $new_staff_id, $mapped_role_id = 0)
+    {
+        if (!$target_db->table_exists('staff_roles')) {
+            return 0;
+        }
+
+        if ($mapped_role_id <= 0) {
+            if ($this->db->table_exists('staff_roles') && $this->db->table_exists('roles') && $target_db->table_exists('roles')) {
+                $source_role = $this->db->get_where('staff_roles', array('staff_id' => $old_staff_id))->row_array();
+                $source_role_id = ($source_role && isset($source_role['role_id'])) ? (int) $source_role['role_id'] : 0;
+                if ($source_role_id > 0) {
+                    $source_role_row = $this->db->get_where('roles', array('id' => $source_role_id))->row_array();
+                    $source_role_name = ($source_role_row && isset($source_role_row['name'])) ? trim((string) $source_role_row['name']) : '';
+                    $mapped_role_id = $this->resolve_target_lookup_id($target_db, 'roles', 'name', $source_role_name, 0);
+                }
+            }
+        }
+
+        if ($mapped_role_id <= 0 && $target_db->table_exists('roles')) {
+            $target_db->order_by('id', 'ASC');
+            $fallback_role = $target_db->get('roles', 1)->row_array();
+            $mapped_role_id = ($fallback_role && isset($fallback_role['id'])) ? (int) $fallback_role['id'] : 0;
+        }
+
+        if ($mapped_role_id <= 0) {
+            return 0;
+        }
+
+        $target_db->where('staff_id', $new_staff_id);
+        $target_db->delete('staff_roles');
+
+        $role_data = array(
+            'role_id' => $mapped_role_id,
+            'staff_id' => $new_staff_id,
+            'is_active' => 1
+        );
+
+        return $target_db->insert('staff_roles', $role_data) ? 1 : 0;
     }
 
 }

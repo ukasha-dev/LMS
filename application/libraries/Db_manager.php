@@ -20,6 +20,12 @@ class Db_manager
             $database_group   = $database_session['db_array']['db_group'];
             
             $this->CI->db=$this->CI->load->database($database_group, TRUE); 
+        } elseif ($this->CI->session->has_userdata('student')) {
+            
+            $database_session = $this->CI->session->userdata('student');
+            $database_group   = isset($database_session['db_array']['db_group']) ? $database_session['db_array']['db_group'] : 'default';
+            
+            $this->CI->db=$this->CI->load->database($database_group, TRUE); 
         } else {
            
             $this->CI->db=$this->CI->load->database('default', TRUE); 

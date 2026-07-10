@@ -94,8 +94,49 @@ class Site extends Public_Controller
             $data['captcha_image'] = $this->captchalib->generate_captcha()['image'];
             }
             $setting_result        = $this->setting_model->get();
-            $result                = $this->staff_model->checkLogin($login_post);           
-           
+
+            // --- MULTI BRANCH STAFF LOGIN FIX START ---
+            include(APPPATH . 'config/database.php');
+            if (isset($db) && is_array($db) && count($db) > 1) {
+                $found_group = 'default';
+                foreach ($db as $group_name => $config_item) {
+                    if ($group_name === 'default') continue;
+                    $test_db = @$this->load->database($group_name, TRUE);
+                    if ($test_db && $test_db->conn_id) {
+                        $test_db->select('password');
+                        $test_db->where('email', $login_post['email']);
+                        $test_db->limit(1);
+                        $query = $test_db->get('staff');
+                        if ($query && $query->num_rows() == 1) {
+                            $row = $query->row();
+                            if ($this->enc_lib->passHashDyc($login_post['password'], $row->password)) {
+                                $found_group = $group_name;
+                                $test_db->close();
+                                break;
+                            }
+                        }
+                        $test_db->close();
+                    }
+                }
+                
+                if ($found_group !== 'default') {
+                    $CI =& get_instance();
+                    $new_db = $CI->load->database($found_group, TRUE);
+                    $CI->db->close();
+                    $CI->db = $new_db;
+                    $this->db = $new_db;
+                    $this->setting_model->db = $new_db;
+                    $this->staff_model->db = $new_db;
+                    $this->staffroles_model->db = $new_db;
+                    $this->customlib->db = $new_db;
+                    $this->config->set_item('active_db_group', $found_group);
+                    $setting_result = $this->setting_model->get(); // Refresh settings from new DB
+                }
+            }
+            // --- MULTI BRANCH STAFF LOGIN FIX END ---
+
+            $result                = $this->staff_model->checkLogin($login_post);
+
             if (!empty($result->language_id)) {
                 $lang_array = array('lang_id' => $result->language_id, 'language' => $result->language);
                 if ($result->is_rtl == 1) {
@@ -144,7 +185,7 @@ class Site extends Public_Controller
                         'gender'                 => $result->gender,                     
                         'db_array'               => ['base_url'               => $setting_result[0]['base_url'],
                                                      'folder_path'            => $setting_result[0]['folder_path'],
-                                                     'db_group'=>'default'
+                                                     'db_group'               => (isset($found_group) ? $found_group : 'default')
                                                     ],
                         'superadmin_restriction' => $setting_result[0]['superadmin_restriction'],
                         'saas_key'               => $setting_result[0]['saas_key'],
@@ -474,6 +515,53 @@ class Site extends Public_Controller
                 'password' => $this->input->post('password'),
             );
             $data['captcha_image'] = $this->captchalib->generate_captcha()['image'];
+            
+            // --- MULTI BRANCH STUDENT LOGIN FIX START ---
+            include(APPPATH . 'config/database.php');
+            if (isset($db) && is_array($db) && count($db) > 1) {
+                $found_group = 'default';
+                foreach ($db as $group_name => $config_item) {
+                    if ($group_name === 'default') continue;
+                    $test_db = @$this->load->database($group_name, TRUE);
+                    if ($test_db && $test_db->conn_id) {
+                        $test_db->select('users.id');
+                        $test_db->from('users');
+                        $test_db->join('students', 'students.id = users.user_id OR students.parent_id = users.id', 'left');
+                        $test_db->where('users.password', $login_post['password']);
+                        $test_db->group_start();
+                        $test_db->where('users.username', $login_post['username']);
+                        $test_db->or_where('students.admission_no', $login_post['username']);
+                        $test_db->or_where('students.mobileno', $login_post['username']);
+                        $test_db->or_where('students.email', $login_post['username']);
+                        $test_db->or_where('students.guardian_phone', $login_post['username']);
+                        $test_db->or_where('students.guardian_email', $login_post['username']);
+                        $test_db->group_end();
+                        $test_db->limit(1);
+                        $query = $test_db->get();
+                        if ($query && $query->num_rows() > 0) {
+                            $found_group = $group_name;
+                            $test_db->close();
+                            break;
+                        }
+                        $test_db->close();
+                    }
+                }
+                
+                if ($found_group !== 'default') {
+                    $CI =& get_instance();
+                    $new_db = $CI->load->database($found_group, TRUE);
+                    $CI->db->close();
+                    $CI->db = $new_db;
+                    $this->db = $new_db;
+                    $this->setting_model->db = $new_db;
+                    $this->user_model->db = $new_db;
+                    $this->student_model->db = $new_db;
+                    $this->customlib->db = $new_db;
+                    $this->config->set_item('active_db_group', $found_group);
+                }
+            }
+            // --- MULTI BRANCH STUDENT LOGIN FIX END ---
+
             $login_details         = $this->user_model->checkLogin($login_post);
 
             if (isset($login_details) && !empty($login_details)) {
@@ -551,7 +639,7 @@ class Site extends Public_Controller
                             'gender'                 => $result[0]->gender,
                             'db_array'               => ['base_url'           => $setting_result[0]['base_url'],
                                                      'folder_path'            => $setting_result[0]['folder_path'],
-                                                     'db_group'=>'default'
+                                                     'db_group'               => (isset($found_group) ? $found_group : 'default')
                                                     ],
                             'superadmin_restriction' => $setting_result[0]['superadmin_restriction'],
 							'admin_panel_whatsapp'   		=> $setting_result[0]['admin_panel_whatsapp'],
