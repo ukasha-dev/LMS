@@ -416,7 +416,7 @@ Expected: `OK (2 tests, ...)`.
 - [ ] **Step 5: Run the full suite**
 
 Run: `"C:\xampp81\php\php.exe" vendor/bin/phpunit`
-Expected: `OK (46 tests, ...)` (unchanged from Task 1 — this task extends
+Expected: `OK (47 tests, ...)` (46 prior + 1 new — this task extends
 the same test file, no net-new test count).
 
 - [ ] **Step 6: Commit**
