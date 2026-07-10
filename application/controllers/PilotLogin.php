@@ -83,7 +83,18 @@ class PilotLogin extends CI_Controller
         ];
 
         $this->session->set_userdata('pilot_admin', $sessionData);
-        redirect('pilotlogin/dashboard');
+
+        $this->session->set_userdata('admin', [
+            'id' => $staff['id'],
+            'username' => $sessionData['username'],
+            'email' => $staff['email'],
+            'roles' => $staff['id'],
+            'language' => ['language' => 'English'],
+            'db_array' => ['base_url' => '', 'folder_path' => '', 'db_group' => 'school_saas_pilot'],
+        ]);
+        $this->session->set_userdata('admin_tenant_id', $tenantId);
+
+        redirect('staff/tenantStaffList');
     }
 
     public function dashboard()
