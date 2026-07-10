@@ -975,4 +975,9 @@ class Staff_model extends MY_Model
        return $query->result_array();
     }
 
+    public function getTenantScopedStaffList($tenantId)
+    {
+        return $this->db->where('tenant_id', $tenantId)->get('staff')->result_array();
+    }
+
 }

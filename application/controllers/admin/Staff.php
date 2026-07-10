@@ -2105,4 +2105,17 @@ class Staff extends Admin_Controller
         return $target_db->insert('staff_roles', $role_data) ? 1 : 0;
     }
 
+    public function tenantStaffList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $staffList = $this->staff_model->getTenantScopedStaffList((int) $tenantId);
+        $this->load->view('admin/staff/tenant_staff_list', ['staffList' => $staffList]);
+    }
+
 }
