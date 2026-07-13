@@ -84,13 +84,16 @@ class PilotLogin extends CI_Controller
 
         $this->session->set_userdata('pilot_admin', $sessionData);
 
+        $roleId = ($roleName !== 'Unknown' && count($staffRoleRows) === 1) ? $staffRoleRows[0]['role_id'] : null;
+
         $this->session->set_userdata('admin', [
             'id' => $staff['id'],
             'username' => $sessionData['username'],
             'email' => $staff['email'],
-            'roles' => $staff['id'],
+            'roles' => [$roleName => $roleId],
             'language' => ['language' => 'English'],
             'db_array' => ['base_url' => '', 'folder_path' => '', 'db_group' => 'school_saas_pilot'],
+            'superadmin_restriction' => 0,
         ]);
         $this->session->set_userdata('admin_tenant_id', $tenantId);
 
