@@ -61,7 +61,11 @@ class Admin_Controller extends MY_Controller
         if ($this->session->userdata('admin_tenant_id')) {
             $activeController = strtolower($this->router->fetch_class());
             $activeMethod     = strtolower($this->router->fetch_method());
-            if ($activeController !== 'staff' || $activeMethod !== 'tenantstafflist') {
+            $allowedTenantRoutes = [
+                'staff' => 'tenantstafflist',
+                'feesforward' => 'tenantfeeslist',
+            ];
+            if (!isset($allowedTenantRoutes[$activeController]) || $allowedTenantRoutes[$activeController] !== $activeMethod) {
                 show_404();
 
                 return;

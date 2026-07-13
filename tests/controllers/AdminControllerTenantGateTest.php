@@ -93,6 +93,19 @@ final class AdminControllerTenantGateTest extends TestCase
         $this->assertSame(404, $ungatedStaffIndexStatus);
     }
 
+    public function testAllowlistGateStillAllowsTheOriginalStaffRouteAfterGeneralization(): void
+    {
+        // Regression proof for Task 1's generalization: the pre-existing
+        // staff/tenantstafflist entry must keep working exactly as before,
+        // not just "should still be in the array."
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        [$staffListStatus, $staffListBody] = $this->curlGet('admin/staff/tenantStaffList');
+        $this->assertSame(200, $staffListStatus);
+        $this->assertStringContainsString('Tenant Staff List', $staffListBody);
+    }
+
     private function curlPostPilotLogin(): array
     {
         $ch = curl_init(self::BASE_URL . 'pilotlogin/login');
