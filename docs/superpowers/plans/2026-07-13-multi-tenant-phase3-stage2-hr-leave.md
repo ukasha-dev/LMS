@@ -177,7 +177,10 @@ Run: `"C:\xampp81\mysql\bin\mysql.exe" -u root < sql/multitenant/009_add_hr_tabl
 - [ ] **Step 3: Verify**
 
 Run: `"C:\xampp81\mysql\bin\mysql.exe" -u root school_saas -e "SHOW TABLES;"`
-Expected: 33 tables now (29 existing + 4 new).
+Expected: 38 tables now (34 existing + 4 new — the 34 baseline includes
+the 5 settings/reference fixture tables added during Phase 2 Stage 6's
+Post-Task-5 fix, `sch_settings`/`languages`/`currencies`/`email_config`/
+`permission_group`, which this plan's earlier arithmetic omitted).
 
 Run: `"C:\xampp81\mysql\bin\mysql.exe" -u root school_saas -e "SELECT COUNT(*) FROM staff; SELECT COUNT(*) FROM student_fees_deposite;"`
 Expected: 18 staff, 699 student_fees_deposite rows — both unchanged from
