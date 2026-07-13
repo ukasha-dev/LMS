@@ -725,11 +725,107 @@ git add application/controllers/PilotLogin.php
 git commit -m "fix: correct PilotLogin's redirect target to admin/staff/tenantStaffList"
 ```
 
----
+**Post-Task-4 fix, round 2 (found while running Task 5 against a real
+authenticated session — the first time anything exercised the full
+`MY_Controller` autoload chain for this flow, since every prior
+verification only checked the unauthenticated redirect):** a real login
+via the fixed redirect target reached `admin/staff/tenantStaffList`, but
+the response was `500 Internal Server Error`, not the expected staff
+list. Root cause, confirmed by reading the actual code (not guessed):
+`PilotLogin.php`'s `admin` session array sets `'roles' => $staff['id']`
+— a bare integer. But `MY_Controller::__construct()` unconditionally
+autoloads `staff_model` (`application/core/MY_Controller.php:19`), whose
+own constructor calls `Customlib::getStaffRole()`
+(`application/libraries/Customlib.php:940-949`), which does
+`$role_key = key($admin['roles'])` — `key()` requires an array argument;
+PHP 8.1 throws a `TypeError` on an int, uncaught → 500. This 500 fires
+inside `MY_Controller::__construct()`, which runs BEFORE
+`Admin_Controller::__construct()`'s Task-1 allowlist gate ever executes
+— meaning the crash also fully masked whether the gate correctly blocks
+`admin/admin/dashboard`, `admin/examgroup`, and `admin/staff` (all three
+also 500'd, not 404'd, so Task 5's Step 2 could not actually prove
+anything about the gate on this attempt). This defect originated in this
+plan's own Task 4 Step 2 code block (written during planning, before the
+real `Customlib::getStaffRole()`/`Staff_model::checkLogin()` shape
+requirement was checked against actual usage) and survived Task 4's two
+review rounds because both only exercised the unauthenticated path — the
+gap Task 5 exists to close.
+
+The correct shape, matching the real login flow's own
+`Staff_model::checkLogin()` (`application/models/Staff_model.php:757`:
+`$record->roles = array($roles[0]->name => $roles[0]->role_id);`), is an
+associative array `[roleName => roleId]` — data `PilotLogin::login()`
+already computes a few lines earlier (`$roleName`, `$staffRoleRows[0]['role_id']`)
+for the `pilot_admin` session's `'role'` key, just never reused for the
+real `admin` array. A secondary, non-fatal warning
+(`Customlib::superadmin_visible()`, line 624, reads
+`$admin['superadmin_restriction']`, absent from the session array) was
+also found by the same live request — not fatal on its own, but worth
+closing at the same time since it's the same class of "session array
+shape doesn't match what shared library code expects" gap.
+
+- [ ] **Fix Step 1: Correct the `admin['roles']` shape and add the
+  missing `superadmin_restriction` key**
+
+In `application/controllers/PilotLogin.php`, replace:
+
+```php
+        $this->session->set_userdata('admin', [
+            'id' => $staff['id'],
+            'username' => $sessionData['username'],
+            'email' => $staff['email'],
+            'roles' => $staff['id'],
+            'language' => ['language' => 'English'],
+            'db_array' => ['base_url' => '', 'folder_path' => '', 'db_group' => 'school_saas_pilot'],
+        ]);
+```
+
+with:
+
+```php
+        $roleId = ($roleName !== 'Unknown' && count($staffRoleRows) === 1) ? $staffRoleRows[0]['role_id'] : null;
+
+        $this->session->set_userdata('admin', [
+            'id' => $staff['id'],
+            'username' => $sessionData['username'],
+            'email' => $staff['email'],
+            'roles' => [$roleName => $roleId],
+            'language' => ['language' => 'English'],
+            'db_array' => ['base_url' => '', 'folder_path' => '', 'db_group' => 'school_saas_pilot'],
+            'superadmin_restriction' => 0,
+        ]);
+```
+
+(`$roleName` and `$staffRoleRows` are the same local variables already
+computed a few lines earlier in this method — no new lookups needed.
+`[$roleName => $roleId]` matches `Customlib::getStaffRole()`'s
+`key($admin['roles'])` usage regardless of whether `$roleId` is `null`
+— `key()` only reads the array's first key, not its value.)
+
+- [ ] **Fix Step 2: Verify live**
+
+Re-run the same real-credential login → `admin/staff/tenantStaffList`
+request from this task's Step 1 (a known test password already set on
+one real `school_saas` tenant-25 staff row for this exact purpose — see
+Task 5's brief for how that was established). Expected: `200`, page
+titled "Tenant Staff List", `<h1>Staff (18 real, tenant-scoped rows)</h1>`.
+Then re-run Step 2's three blocked-route checks
+(`admin/admin/dashboard`, `admin/examgroup`, `admin/staff`) with the
+SAME authenticated cookie jar — expected: all three now `404` (not 500),
+proving the allowlist gate is actually reachable and actually blocks
+them, which the crash previously prevented from being provable.
+
+- [ ] **Fix Step 3: Run the full suite**
+
+Run: `"C:\xampp81\php\php.exe" vendor/bin/phpunit`
+Expected: `OK (48 tests, ...)` (unchanged — this fix touches no test
+files; Task 5 adds the credentialed test afterward).
+
+- [ ] **Fix Step 4: Commit**
 
 ```bash
 git add application/controllers/PilotLogin.php
-git commit -m "feat: redirect PilotLogin's real auth into the real Staff controller"
+git commit -m "fix: shape PilotLogin's admin session roles as Customlib/Rbac expect, add superadmin_restriction default"
 ```
 
 ---
