@@ -298,6 +298,50 @@ made.
      to end via `PilotFees` (699 `<li>` entries, 0 "Unknown"
      occurrences).
 
+   - **Stage 2 — HR/staff leave** — ✅ complete (2026-07-13, plan:
+     `2026-07-13-multi-tenant-phase3-stage2-hr-leave.md`). Extends
+     `school_saas` with four tenant-scoped tables — `department`,
+     `staff_designation`, `leave_types`, `staff_leave_details` — the
+     shallowest FK chain of any Phase 3 stage so far (one layer: catalog
+     → per-staff leave-type allotment). A new `MergeHrData` tool (extends
+     `AbstractTenantMerger`) migrates all four tables in one transaction:
+     the three catalog tables via plain `IdRemapper` (fresh data), and
+     `staff_leave_details` by reconnecting `staff_id` to the
+     already-migrated `staff` table via `NaturalKeyIdResolver::resolve()`
+     on `staff`/`email` — reused completely unchanged, proving it
+     generalizes to a THIRD table/column shape (after `sessions`/`session`
+     in Stage 1, `students`/`admission_no` in the earlier exam-data
+     stage). A new `PilotHr` controller proves it end to end. This
+     stage's plan explicitly surveyed and deferred, as 0-real-rows and
+     out of scope: `staff_leave_request` (the actual leave
+     request/approval workflow, distinct from the leave-type ALLOTMENT
+     records this stage migrates), `homework`, `subject_timetable`, and
+     everything under payroll (`staff_payroll`, `staff_payslip`,
+     `payslip_allowance`), library (`book_issues`, `visitors_book`;
+     `books` has exactly 1 row, also excluded as not-meaningfully-real),
+     hostel (`hostel`, `hostel_rooms`), and transport (`vehicles`,
+     `vehicle_routes`, `transport_route`, `route_pickup_point`) — all
+     confirmed 0 rows in `al_hafeez_campus` before this stage was scoped,
+     so there is nothing real to migrate for any of those modules yet;
+     they remain open for a future Phase 3 stage once (or if) real data
+     ever lands in them. **First real run succeeded on the first try, no
+     bugs found:** `Migrated 5 departments, 12 designations, 2 leave
+     types, and 32 staff leave allotments for tenant 25.` with no STDERR
+     skip warning (skip count 0, as predicted by this stage's pre-flight
+     dangling-reference survey, and by the confirmed-unique email
+     addresses across all 18 real staff) — matching the source exactly
+     on all four row counts (5 / 12 / 2 / 32 on both sides). Spot-checked
+     5 real staff (by email: `rabiachauhan923@gmail.com`,
+     `aliakhan031047@gmail.com`, `hassamchuhanchuhan@gmail.com`,
+     `rabiach.iqbal@gmail.com`, `sana909943@gmail.com`) — leave type
+     names (`medical`, `Half Leave`) and `alloted_leave` values (empty
+     string in the real source data for every row checked, carried
+     through unchanged) identical between `al_hafeez_campus` and
+     `school_saas` despite the expected id remapping — and verified end
+     to end via `PilotHr` (32 `<li>` entries, 0 "Unknown" occurrences,
+     header reading "Staff Leave Allotments (32 results, 5 departments,
+     12 designations)").
+
 4. **Phase 4 — API layer** (not yet planned)
    Apply the same treatment to `api/` (112 files) — separate branch-switch
    logic today, needs its own tenant-scoping pass.
