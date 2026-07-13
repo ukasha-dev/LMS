@@ -984,7 +984,7 @@ to catch.
 **Fix, applied and independently re-verified live before being written
 up here:** six tables added to `school_saas` —
 - `currencies`, `languages`: copied in full from `al_hafeez_campus`
-  (77 and 179 rows respectively). Treated as GLOBAL, non-tenant-scoped
+  (179 and 77 rows respectively). Treated as GLOBAL, non-tenant-scoped
   reference catalogs (world currency/language lists), not per-school
   data — same content expected across every future tenant, so no
   `tenant_id` column, no duplication needed per school.
