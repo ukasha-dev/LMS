@@ -238,6 +238,19 @@ made.
 - No phase merges a school's data into `school_saas` without first
   confirming, via automated test, that cross-tenant reads/writes are
   blocked (see `TenantScopeTest` in Phase 1 for the pattern to replicate).
+- **Any stage that retrofits a real, live admin controller (not a
+  parallel `Pilot*` proof controller) must include a live, credentialed,
+  end-to-end HTTP request as a required task step — an unauthenticated
+  smoke test is not sufficient.** Learned the hard way in Stage 6: two of
+  its three real bugs (a wrong session-array shape causing a 500, and
+  `MY_Controller`'s ~100-model autoload chain needing settings tables
+  `school_saas` didn't have) were only reachable by a real authenticated
+  request through the full controller/model chain — by design, no
+  unauthenticated-redirect check or code review could have caught either
+  one. Future plans for this kind of stage (e.g. Phase 3's eventual real
+  controller retrofits) should schedule the live credentialed check as
+  its own early task, not bundled at the very end, so this class of bug
+  surfaces before more work is built on top of an untested assumption.
 - All `Pilot*` controllers (`PilotStudents`, `PilotLogin`, `PilotClasses`,
   ...) are an unauthenticated proof harness — anyone can call
   `login_as/<any-id>` and select any tenant with data. They must be
