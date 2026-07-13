@@ -352,4 +352,9 @@ class Examgroup_model extends MY_Model
         return $result;
     }
 
+    public function getTenantScopedExamResultsList($tenantId)
+    {
+        return $this->db->where('tenant_id', $tenantId)->get('exam_group_exam_results')->result_array();
+    }
+
 }

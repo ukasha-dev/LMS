@@ -984,4 +984,17 @@ class Examgroup extends Admin_Controller
         echo json_encode($array);
     }
 
+    public function tenantExamResultsList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $examResultsList = $this->examgroup_model->getTenantScopedExamResultsList((int) $tenantId);
+        $this->load->view('admin/examgroup/tenant_exam_results_list', ['examResultsList' => $examResultsList]);
+    }
+
 }
