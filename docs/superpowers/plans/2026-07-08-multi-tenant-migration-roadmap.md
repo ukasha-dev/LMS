@@ -167,6 +167,51 @@ made.
      identical between `al_hafeez_campus` and `school_saas`, and
      verified end to end via `PilotExam` (2785 `<li>` entries, 0
      "Unknown" occurrences, header correctly reading "8 exam groups").
+   - **Stage 6 — Real Staff model retrofit** — ✅ complete (2026-07-13,
+     plan: `2026-07-10-multi-tenant-phase2-stage6-real-staff-retrofit.md`).
+     The first stage to touch code in the LIVE admin panel's shared
+     execution path — every prior stage only added new schema plus a
+     parallel, unauthenticated `Pilot*` proof controller. Deliberately
+     narrowed twice during planning: `Site.php` itself is never touched
+     (tenant 25/`al_hafeez_campus` is a live school; touching its real
+     login risked a functional regression for real daily users), and
+     only ONE new method is added to the real `Staff.php`/`Staff_model.php`
+     (not the full `Staff::index()` page, which pulls in shared layout
+     chrome, `rbac`, and raw-SQL search — out of scope). Built two narrow
+     gates keyed on a new session flag, `admin_tenant_id`, set only by
+     `PilotLogin`'s real credential check: an allowlist gate in
+     `Admin_Controller`'s constructor (blocks a tenant-scoped session
+     from reaching any controller/method except the one this stage adds)
+     and a `Db_manager` connection gate (routes that session to
+     `school_saas`). `Staff_model` gained one new method with an explicit
+     `WHERE tenant_id = ?` filter — the first real instance of the
+     query-scoping strategy locked in on day one, executed against a
+     live, shared-by-all-6-schools file. **Three real bugs found and
+     fixed during execution, each caught by the next verification step
+     rather than by inspection:** (1) a routing bug — the redirect
+     target was missing the `admin/` prefix `Staff.php` actually lives
+     under, so a successful login silently fell through to an unrelated
+     redirect instead of the real page — caught by a task reviewer
+     before any live check ran; (2) the `admin` session array's `roles`
+     key was shaped wrong (a bare int instead of `[roleName => roleId]`,
+     which `Customlib::getStaffRole()` expects), throwing a real 500 on
+     every authenticated request that also masked whether the allowlist
+     gate worked at all — caught by Task 5's first live login attempt;
+     (3) `MY_Controller`'s ~100-model unconditional autoload chain needed
+     settings/reference data (`sch_settings`, `languages`, `currencies`,
+     plus three schema-only existence-check tables) that `school_saas`
+     never had, since no prior stage needed school-wide settings — caught
+     immediately after fixing (2), by the same live request. All three
+     fixes independently re-reviewed or re-verified live. Final state,
+     verified end to end with a real `PilotLogin` authentication: the
+     real `admin/staff/tenantStaffList` returns the real 18 tenant-25
+     staff rows, and `admin/admin/dashboard`, `admin/examgroup`, and the
+     real un-gated `admin/staff` index all return `404` for that same
+     session — proving the gate mechanism actually blocks what it's
+     supposed to, not just that it compiles. The allowlist-gate mechanism
+     (Task 1) is reusable infrastructure: a future stage retrofitting
+     another real controller only needs one new allowlist entry and one
+     gated method, not a rebuilt gate.
 
 3. **Phase 3 — Retrofit remaining modules** (not yet planned)
    Fees, payroll, library, transport, hostel, HR, messaging, and the rest
@@ -197,7 +242,18 @@ made.
   ...) are an unauthenticated proof harness — anyone can call
   `login_as/<any-id>` and select any tenant with data. They must be
   removed or gated behind a real auth check before Phase 5's cutover;
-  flagged in Stage 2's final review (2026-07-09).
+  flagged in Stage 2's final review (2026-07-09). Stage 6 sharpens this:
+  `PilotLogin` now does real credential verification and, on success,
+  reaches a real production controller (`Staff::tenantStaffList`) — its
+  test suite (`tests/controllers/AdminControllerTenantGateTest.php`)
+  necessarily commits a real, working tenant-25 staff email/test-password
+  pair to source control to exercise this live. Reviewed and accepted as
+  low-risk for now (local-dev-only environment, password is a
+  known-test value set specifically for this purpose, the real
+  `al_hafeez_campus` per-branch account/password was never touched) —
+  but this credential must be rotated or the test restructured to avoid
+  a committed working login before any non-local deployment, at the
+  same time the broader `Pilot*` removal/gating happens.
 
 ## Carried-forward technical debt
 
