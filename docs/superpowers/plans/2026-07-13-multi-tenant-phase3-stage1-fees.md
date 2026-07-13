@@ -1471,6 +1471,235 @@ No STDERR warning lines expected (all four skip counts should be 0,
 verified via this plan's pre-flight dangling-reference survey; if a
 warning DOES appear, stop and investigate).
 
+**Post-Task-6 fix (found by Step 1's first real run):** the tool threw
+instead of migrating:
+
+```
+RuntimeException: Ambiguous natural key: multiple distinct ids share the value "2025-26"
+in column "session" of table "sessions" — cannot safely resolve.
+```
+
+Root cause, confirmed by direct SQL: BOTH `al_hafeez_campus.sessions`
+(source, ids 21 and 26) AND `school_saas.sessions` for tenant 25
+(target, ids 10 and 15) genuinely have two rows named `"2025-26"` — this
+exact duplicate was already known and documented back in Stage 5's
+planning notes ("the sessions table does contain a real duplicate-name
+pair... but no real exam data touches it"), which is why Stage 5 sidestepped
+it entirely (fresh `IdRemapper`, not natural-key reconnection). This
+fee-migration stage is the FIRST to actually need natural-key
+reconnection to the already-migrated `sessions` table, and Task 2's
+design called the shared `NaturalKeyIdResolver::resolve()` unscoped —
+against the WHOLE `sessions` table — which fails fast on ANY duplicate
+name it finds, regardless of whether that duplicate is ever referenced
+by the data actually being migrated. Verified via direct SQL: zero fee
+rows (`feetype`, `fees_discounts`, `fee_session_groups`,
+`fee_groups_feetype`) reference session id 21 or 26 — the only sessions
+any fee data touches are 20 (`"2024-25"`) and 22 (`"2026-27"`), the same
+two clean sessions Stage 5 already used successfully. This is the exact
+same failure shape already named once this project (Stage 4's
+`is_active` saga): "the resolver's uniqueness domain being broader than
+it needs to be."
+
+**Fix:** replace the blanket `NaturalKeyIdResolver::resolve()` call
+(which resolves and ambiguity-checks the ENTIRE `sessions` table) with a
+new PRIVATE method local to `MergeFeeData` that resolves and
+ambiguity-checks ONLY the specific session ids actually referenced by
+the four fee tables that have a `session_id` column. Verified empirically
+before applying: filtering the real ambiguity check to just the
+referenced ids (20, 22) returns zero collisions — this mirrors the
+established response pattern from every prior real-data collision in
+this project (diagnose root cause via direct SQL, confirm the ambiguous
+rows are unreferenced/safe to exclude from the check, apply the
+narrowest correct fix). Unlike Stage 4's `is_active` fix, this does NOT
+touch the shared `NaturalKeyIdResolver.php` (a protected file per this
+stage's Global Constraints, and correctly still used unchanged by other
+merge tools) — the new logic lives entirely inside `MergeFeeData.php`.
+Collision detection is NOT removed, only narrowed: if one of the
+sessions ACTUALLY referenced by fee data turns out to be ambiguous, this
+still throws the same `RuntimeException`.
+
+This also makes `NaturalKeyIdResolver` entirely unused in
+`MergeFeeData.php` (its other use, for `students`/`admission_no`, was
+already removed as dead code in the Post-Task-3 fix) — its
+`require_once` is removed too.
+
+- [ ] **Fix Step 1: Replace the blanket session resolver with a scoped one**
+
+In `tools/multitenant/MergeFeeData.php`, remove this line from the top
+of the file:
+
+```php
+require_once __DIR__ . '/NaturalKeyIdResolver.php';
+```
+
+Replace the first two lines of `run()`:
+
+```php
+        $sessionResolver = new NaturalKeyIdResolver();
+        $sessionMap = $sessionResolver->resolve($this->source, $this->target, $this->tenantId, 'sessions', 'session');
+
+        $feetypeRemap = new IdRemapper($this->nextId('feetype'));
+        $feetypes = $this->fetchAll(
+            'SELECT id, is_system, type, code, is_active, description, session_id, nature, created_at, updated_at FROM feetype'
+        );
+        $feetypeSourceTotal = count($feetypes);
+```
+
+with:
+
+```php
+        $feetypes = $this->fetchAll(
+            'SELECT id, is_system, type, code, is_active, description, session_id, nature, created_at, updated_at FROM feetype'
+        );
+        $feesDiscounts = $this->fetchAll(
+            'SELECT id, session_id, name, code, type, percentage, amount, discount_limit, expire_date, description, is_active, created_at, updated_at'
+            . ' FROM fees_discounts'
+        );
+        $fsgRows = $this->fetchAll('SELECT id, fee_groups_id, session_id, is_active, created_at, updated_at FROM fee_session_groups');
+        $fgfRows = $this->fetchAll(
+            'SELECT id, fee_session_group_id, fee_groups_id, feetype_id, session_id, amount, fine_type, due_date,'
+            . ' fine_percentage, fine_amount, fine_per_day, is_active, created_at, updated_at FROM fee_groups_feetype'
+        );
+
+        $referencedSessionIds = [];
+        foreach ([$feetypes, $feesDiscounts, $fsgRows, $fgfRows] as $rowSet) {
+            foreach ($rowSet as $row) {
+                if ($row['session_id'] !== null) {
+                    $referencedSessionIds[] = (int) $row['session_id'];
+                }
+            }
+        }
+        $sessionMap = $this->resolveReferencedSessionIds($referencedSessionIds);
+
+        $feetypeRemap = new IdRemapper($this->nextId('feetype'));
+        $feetypeSourceTotal = count($feetypes);
+```
+
+(`$feetypes`, `$feesDiscounts`, `$fsgRows`, `$fgfRows` are now fetched
+up front instead of interleaved with their build loops — remove the
+now-duplicate `$feesDiscounts = $this->fetchAll(...)`,
+`$fsgRows = $this->fetchAll(...)`, and `$fgfRows = $this->fetchAll(...)`
+lines further down in `run()`, right after each of their `$...Remap = new
+IdRemapper(...)` lines, since those rows are already fetched above —
+e.g. `$feesDiscountRemap = new IdRemapper($this->nextId('fees_discounts'));`
+should be immediately followed by `$feesDiscountSourceTotal =
+count($feesDiscounts);`, with the `$feesDiscounts = $this->fetchAll(...)`
+call between them deleted; same pattern for `$fsgRows` after
+`$fsgRemap` and `$fgfRows` after `$fgfRemap`. Every build `foreach` loop
+body and the `fee_groups`/`fees_reminder`/`student_fees_*` sections
+below are completely unchanged — only the fetch timing moves, the
+processing logic doesn't.)
+
+Add this new private method inside the `MergeFeeData` class, after
+`run()` (before the closing `}` of the class):
+
+```php
+    private function resolveReferencedSessionIds(array $oldSessionIds): array
+    {
+        $oldSessionIds = array_values(array_unique($oldSessionIds));
+        if ($oldSessionIds === []) {
+            return [];
+        }
+
+        $sourceRows = $this->fetchAll('SELECT id, session FROM sessions');
+        $sourceNameById = [];
+        foreach ($sourceRows as $row) {
+            $sourceNameById[(int) $row['id']] = $row['session'];
+        }
+
+        $targetStmt = $this->target->prepare('SELECT id, session FROM sessions WHERE tenant_id = :tenant_id');
+        $targetStmt->execute([':tenant_id' => $this->tenantId]);
+        $targetRows = $targetStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $oldToNew = [];
+        foreach ($oldSessionIds as $oldId) {
+            $name = $sourceNameById[$oldId] ?? null;
+            if ($name === null) {
+                continue;
+            }
+            $matches = array_values(array_filter($targetRows, static fn ($row) => $row['session'] === $name));
+            if (count($matches) > 1) {
+                throw new RuntimeException(
+                    "Ambiguous natural key: multiple distinct ids share the value \"{$name}\" in column \"session\""
+                    . " of table \"sessions\" — cannot safely resolve. Manual investigation required."
+                );
+            }
+            if (count($matches) === 1) {
+                $oldToNew[$oldId] = (int) $matches[0]['id'];
+            }
+        }
+
+        return $oldToNew;
+    }
+```
+
+- [ ] **Fix Step 2: Add regression tests proving the fix**
+
+Add to `tests/tools/multitenant/MergeFeeDataTest.php`, after the
+existing `testMergesCatalogTablesWithRemappedIdsAndReconnectedSessions`
+test:
+
+```php
+    public function testResolvesReferencedSessionsEvenWhenAnUnrelatedDuplicateSessionNameExistsElsewhere(): void
+    {
+        // Mirrors the real al_hafeez_campus collision: TWO unrelated
+        // sessions elsewhere in the table share a name ("2025-26"), but
+        // nothing being migrated references either of them. Must NOT
+        // throw, and the actually-referenced session must still resolve
+        // correctly.
+        $this->source->exec("INSERT INTO sessions (id, session) VALUES (20, '2024-25'), (21, '2025-26'), (26, '2025-26')");
+        $this->target->exec("INSERT INTO sessions (id, session, tenant_id) VALUES (2, '2024-25', 25), (10, '2025-26', 25), (15, '2025-26', 25)");
+
+        $this->source->exec("INSERT INTO feetype (id, type, code, nature, session_id) VALUES (5, 'Tuition Fee', 'TUI', 'monthly', 20)");
+
+        $merger = new MergeFeeData($this->source, $this->target, 25);
+        $result = $merger->run();
+
+        $this->assertSame(1, $result['feetype_migrated']);
+        $this->assertSame(0, $result['feetype_skipped']);
+
+        $feetype = $this->target->query('SELECT * FROM feetype')->fetch(PDO::FETCH_ASSOC);
+        $this->assertSame(2, (int) $feetype['session_id']);
+    }
+
+    public function testThrowsWhenAnActuallyReferencedSessionNameIsAmbiguous(): void
+    {
+        // Unlike the test above, THIS session name collision is directly
+        // referenced by the row being migrated -- must still throw,
+        // exactly like the pre-fix behavior for a genuine ambiguity.
+        $this->source->exec("INSERT INTO sessions (id, session) VALUES (20, '2024-25')");
+        $this->target->exec("INSERT INTO sessions (id, session, tenant_id) VALUES (2, '2024-25', 25), (3, '2024-25', 25)");
+
+        $this->source->exec("INSERT INTO feetype (id, type, code, nature, session_id) VALUES (5, 'Tuition Fee', 'TUI', 'monthly', 20)");
+
+        $merger = new MergeFeeData($this->source, $this->target, 25);
+
+        $this->expectException(RuntimeException::class);
+        $merger->run();
+    }
+```
+
+- [ ] **Fix Step 3: Run tests**
+
+Run: `"C:\xampp81\php\php.exe" vendor/bin/phpunit tests/tools/multitenant/MergeFeeDataTest.php`
+Expected: `OK (6 tests, ...)` (4 prior + 2 new).
+
+Run: `"C:\xampp81\php\php.exe" vendor/bin/phpunit`
+Expected: `OK (55 tests, ...)` (53 prior + 2 new).
+
+- [ ] **Fix Step 4: Commit**
+
+```bash
+git add tools/multitenant/MergeFeeData.php tests/tools/multitenant/MergeFeeDataTest.php
+git commit -m "fix: scope MergeFeeData's session resolution to referenced ids only, not the whole sessions table"
+```
+
+- [ ] **Fix Step 5: Retry Step 1**
+
+Re-run: `"C:\xampp81\php\php.exe" tools/multitenant/MergeFeeData.php al_hafeez_campus 25`
+Expected: the exact success output from this task's original Step 1, no
+exception, no STDERR warnings.
+
 - [ ] **Step 2: Row-count reconciliation**
 
 Run against `al_hafeez_campus` and the matching `WHERE tenant_id = 25`
