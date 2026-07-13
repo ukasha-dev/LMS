@@ -168,9 +168,62 @@ final class MergeFeeData extends AbstractTenantMerger
             $sfDiscRowsToInsert[$oldId] = $row;
         }
 
+        $sfDepositeRemap = new IdRemapper($this->nextId('student_fees_deposite'));
+        $sfDepositeRows = $this->fetchAll(
+            'SELECT id, student_fees_master_id, fee_groups_feetype_id, student_transport_fee_id, amount_detail, is_active, created_at, updated_at'
+            . ' FROM student_fees_deposite'
+        );
+        $sfDepositeSourceTotal = count($sfDepositeRows);
+        $sfDepositeSkipped = 0;
+        $sfDepositeRowsToInsert = [];
+        foreach ($sfDepositeRows as $row) {
+            $oldId = (int) $row['id'];
+            $oldMasterId = $row['student_fees_master_id'] !== null ? (int) $row['student_fees_master_id'] : null;
+            $oldFgfId = $row['fee_groups_feetype_id'] !== null ? (int) $row['fee_groups_feetype_id'] : null;
+            if (($oldMasterId !== null && !isset($sfmRowsToInsert[$oldMasterId]))
+                || ($oldFgfId !== null && !isset($fgfRowsToInsert[$oldFgfId]))
+            ) {
+                $sfDepositeSkipped++;
+                continue;
+            }
+            $sfDepositeRemap->remapId($oldId);
+            $row['id'] = $sfDepositeRemap->getMapping($oldId);
+            $row['student_fees_master_id'] = $oldMasterId !== null ? $sfmRemap->getMapping($oldMasterId) : null;
+            $row['fee_groups_feetype_id'] = $oldFgfId !== null ? $fgfRemap->getMapping($oldFgfId) : null;
+            // student_transport_fee_id intentionally passed through unresolved --
+            // always NULL in real data (verified during planning); transport
+            // fees are out of this stage's scope.
+            $sfDepositeRowsToInsert[$oldId] = $row;
+        }
+
+        $sadRemap = new IdRemapper($this->nextId('student_applied_discounts'));
+        $sadRows = $this->fetchAll(
+            'SELECT id, student_fees_deposite_id, student_fees_discount_id, date, invoice_id, sub_invoice_id, created_at, updated_at'
+            . ' FROM student_applied_discounts'
+        );
+        $sadSourceTotal = count($sadRows);
+        $sadSkipped = 0;
+        $sadRowsToInsert = [];
+        foreach ($sadRows as $row) {
+            $oldId = (int) $row['id'];
+            $oldDepositeId = $row['student_fees_deposite_id'] !== null ? (int) $row['student_fees_deposite_id'] : null;
+            $oldDiscountId = $row['student_fees_discount_id'] !== null ? (int) $row['student_fees_discount_id'] : null;
+            if (($oldDepositeId !== null && !isset($sfDepositeRowsToInsert[$oldDepositeId]))
+                || ($oldDiscountId !== null && !isset($sfDiscRowsToInsert[$oldDiscountId]))
+            ) {
+                $sadSkipped++;
+                continue;
+            }
+            $sadRemap->remapId($oldId);
+            $row['id'] = $sadRemap->getMapping($oldId);
+            $row['student_fees_deposite_id'] = $oldDepositeId !== null ? $sfDepositeRemap->getMapping($oldDepositeId) : null;
+            $row['student_fees_discount_id'] = $oldDiscountId !== null ? $sfDiscRemap->getMapping($oldDiscountId) : null;
+            $sadRowsToInsert[$oldId] = $row;
+        }
+
         $this->inTransaction(function () use (
             $feetypeRowsToInsert, $feeGroups, $feesDiscountRowsToInsert, $fsgRowsToInsert, $fgfRowsToInsert, $reminders,
-            $feeGroupRemap, $reminderRemap, $sfmRowsToInsert, $sfDiscRowsToInsert
+            $feeGroupRemap, $reminderRemap, $sfmRowsToInsert, $sfDiscRowsToInsert, $sfDepositeRowsToInsert, $sadRowsToInsert
         ) {
             foreach ($feetypeRowsToInsert as $row) {
                 $this->insertRow('feetype', $row);
@@ -198,6 +251,12 @@ final class MergeFeeData extends AbstractTenantMerger
             foreach ($sfDiscRowsToInsert as $row) {
                 $this->insertRow('student_fees_discounts', $row);
             }
+            foreach ($sfDepositeRowsToInsert as $row) {
+                $this->insertRow('student_fees_deposite', $row);
+            }
+            foreach ($sadRowsToInsert as $row) {
+                $this->insertRow('student_applied_discounts', $row);
+            }
         });
 
         return [
@@ -221,6 +280,57 @@ final class MergeFeeData extends AbstractTenantMerger
             'student_fees_discounts_migrated' => count($sfDiscRowsToInsert),
             'student_fees_discounts_source_total' => $sfDiscSourceTotal,
             'student_fees_discounts_skipped' => $sfDiscSkipped,
+            'student_fees_deposite_migrated' => count($sfDepositeRowsToInsert),
+            'student_fees_deposite_source_total' => $sfDepositeSourceTotal,
+            'student_fees_deposite_skipped' => $sfDepositeSkipped,
+            'student_applied_discounts_migrated' => count($sadRowsToInsert),
+            'student_applied_discounts_source_total' => $sadSourceTotal,
+            'student_applied_discounts_skipped' => $sadSkipped,
         ];
+    }
+}
+
+if (PHP_SAPI === 'cli' && basename(__FILE__) === basename($argv[0] ?? '')) {
+    $sourceDb = $argv[1] ?? null;
+    $tenantId = isset($argv[2]) ? (int) $argv[2] : null;
+
+    if (!$sourceDb || !$tenantId) {
+        fwrite(STDERR, "Usage: php MergeFeeData.php <source_database_name> <tenant_id>\n");
+        exit(1);
+    }
+
+    $source = new PDO("mysql:host=127.0.0.1;dbname={$sourceDb};charset=utf8mb4", 'root', '');
+    $source->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $target = new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', '');
+    $target->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+    $merger = new MergeFeeData($source, $target, $tenantId);
+    $result = $merger->run();
+
+    echo "Migrated {$result['feetype_migrated']} fee types, {$result['fee_groups_migrated']} fee groups,"
+        . " {$result['fees_discounts_migrated']} fee discounts, {$result['fee_session_groups_migrated']} fee session groups,"
+        . " {$result['fee_groups_feetype_migrated']} fee group pricing rows, {$result['fees_reminder_migrated']} fee reminders,"
+        . " {$result['student_fees_master_migrated']} student fee assignments, {$result['student_fees_deposite_migrated']} student fee deposits,"
+        . " {$result['student_fees_discounts_migrated']} student fee discounts, and {$result['student_applied_discounts_migrated']} applied discounts"
+        . " for tenant {$tenantId}.\n";
+
+    $skipChecks = [
+        'feetype' => [$result['feetype_skipped'], $result['feetype_source_total']],
+        'fees_discounts' => [$result['fees_discounts_skipped'], $result['fees_discounts_source_total']],
+        'fee_session_groups' => [$result['fee_session_groups_skipped'], $result['fee_session_groups_source_total']],
+        'fee_groups_feetype' => [$result['fee_groups_feetype_skipped'], $result['fee_groups_feetype_source_total']],
+        'student_fees_master' => [$result['student_fees_master_skipped'], $result['student_fees_master_source_total']],
+        'student_fees_discounts' => [$result['student_fees_discounts_skipped'], $result['student_fees_discounts_source_total']],
+        'student_fees_deposite' => [$result['student_fees_deposite_skipped'], $result['student_fees_deposite_source_total']],
+        'student_applied_discounts' => [$result['student_applied_discounts_skipped'], $result['student_applied_discounts_source_total']],
+    ];
+    foreach ($skipChecks as $label => [$skipped, $sourceTotal]) {
+        if ($skipped > 0) {
+            fwrite(
+                STDERR,
+                "WARNING: {$skipped} of {$sourceTotal} {$label} rows could not be resolved and were skipped."
+                . " Investigate before trusting this migration.\n"
+            );
+        }
     }
 }

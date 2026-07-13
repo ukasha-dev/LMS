@@ -58,6 +58,12 @@ final class MergeFeeDataTest extends TestCase
             . ' status VARCHAR(20) DEFAULT \'assigned\', payment_id VARCHAR(50) DEFAULT NULL, description TEXT DEFAULT NULL,'
             . ' is_active VARCHAR(10) NOT NULL DEFAULT \'no\','
             . ' created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP';
+        $sfDepositeSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, student_fees_master_id INT DEFAULT NULL, fee_groups_feetype_id INT DEFAULT NULL,'
+            . ' student_transport_fee_id INT DEFAULT NULL, amount_detail TEXT DEFAULT NULL, is_active VARCHAR(10) NOT NULL DEFAULT \'no\','
+            . ' created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP';
+        $sadSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, student_fees_deposite_id INT DEFAULT NULL, student_fees_discount_id INT DEFAULT NULL,'
+            . ' date DATE DEFAULT NULL, invoice_id INT DEFAULT NULL, sub_invoice_id INT DEFAULT NULL,'
+            . ' created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP';
 
         foreach ([$this->source, $this->target] as $db) {
             $tenantCol = $db === $this->target ? ', tenant_id INT NOT NULL' : '';
@@ -74,6 +80,8 @@ final class MergeFeeDataTest extends TestCase
             $db->exec("CREATE TABLE student_session ({$studentSessionSchema}{$tenantCol})");
             $db->exec("CREATE TABLE student_fees_master ({$sfmSchema}{$tenantCol})");
             $db->exec("CREATE TABLE student_fees_discounts ({$sfDiscSchema}{$tenantCol})");
+            $db->exec("CREATE TABLE student_fees_deposite ({$sfDepositeSchema}{$tenantCol})");
+            $db->exec("CREATE TABLE student_applied_discounts ({$sadSchema}{$tenantCol})");
         }
     }
 
@@ -202,5 +210,67 @@ final class MergeFeeDataTest extends TestCase
         $this->assertSame(0, $result['student_fees_master_migrated']);
         $this->assertSame(1, $result['student_fees_master_source_total']);
         $this->assertSame(1, $result['student_fees_master_skipped']);
+    }
+
+    public function testReconnectsDepositeAndAppliedDiscountsToThisRunsOwnRemappedRows(): void
+    {
+        // Full chain: catalog -> student -> master -> deposite -> applied discount.
+        $this->source->exec("INSERT INTO sessions (id, session) VALUES (20, '2024-25')");
+        $this->target->exec("INSERT INTO sessions (id, session, tenant_id) VALUES (2, '2024-25', 25)");
+        $this->source->exec("INSERT INTO fee_groups (id, name, nature) VALUES (8, 'General Fee', 'monthly')");
+        $this->source->exec("INSERT INTO fee_session_groups (id, fee_groups_id, session_id) VALUES (30, 8, 20)");
+        $this->source->exec("INSERT INTO feetype (id, type, code, nature, session_id) VALUES (5, 'Tuition Fee', 'TUI', 'monthly', 20)");
+        $this->source->exec(
+            "INSERT INTO fee_groups_feetype (id, fee_session_group_id, fee_groups_id, feetype_id, session_id, amount)"
+            . " VALUES (100, 30, 8, 5, 20, 1500.00)"
+        );
+        $this->source->exec("INSERT INTO fees_discounts (id, session_id, name, code, type, percentage) VALUES (12, 20, 'Sibling Discount', 'SIB', 'percentage', 10.00)");
+
+        $this->source->exec("INSERT INTO students (id, admission_no) VALUES (101, 'ADM-001')");
+        $this->source->exec("INSERT INTO classes (id, class) VALUES (201, 'Class 1')");
+        $this->source->exec("INSERT INTO sections (id, section) VALUES (301, 'A')");
+        $this->source->exec("INSERT INTO student_session (id, student_id, class_id, section_id, created_at) VALUES (401, 101, 201, 301, '2025-01-01 00:00:00')");
+        $this->target->exec("INSERT INTO students (id, admission_no, tenant_id) VALUES (1, 'ADM-001', 25)");
+        $this->target->exec("INSERT INTO classes (id, class, tenant_id) VALUES (2, 'Class 1', 25)");
+        $this->target->exec("INSERT INTO sections (id, section, tenant_id) VALUES (3, 'A', 25)");
+        $this->target->exec("INSERT INTO student_session (id, student_id, class_id, section_id, tenant_id, created_at) VALUES (4, 1, 2, 3, 25, '2025-01-01 00:00:00')");
+
+        $this->source->exec(
+            "INSERT INTO student_fees_master (id, student_session_id, fee_session_group_id, amount) VALUES (500, 401, 30, 1500.00)"
+        );
+        $this->source->exec(
+            "INSERT INTO student_fees_discounts (id, student_session_id, fees_discount_id, status) VALUES (600, 401, 12, 'assigned')"
+        );
+        $this->source->exec(
+            "INSERT INTO student_fees_deposite (id, student_fees_master_id, fee_groups_feetype_id, amount_detail) VALUES (700, 500, 100, '{\"paid\":1500}')"
+        );
+        $this->source->exec(
+            "INSERT INTO student_applied_discounts (id, student_fees_deposite_id, student_fees_discount_id, date, invoice_id) VALUES (800, 700, 600, '2026-01-15', 42)"
+        );
+
+        $merger = new MergeFeeData($this->source, $this->target, 25);
+        $result = $merger->run();
+
+        $this->assertSame(1, $result['student_fees_deposite_migrated']);
+        $this->assertSame(1, $result['student_fees_deposite_source_total']);
+        $this->assertSame(0, $result['student_fees_deposite_skipped']);
+        $this->assertSame(1, $result['student_applied_discounts_migrated']);
+        $this->assertSame(1, $result['student_applied_discounts_source_total']);
+        $this->assertSame(0, $result['student_applied_discounts_skipped']);
+
+        $deposite = $this->target->query('SELECT * FROM student_fees_deposite')->fetch(PDO::FETCH_ASSOC);
+        $master = $this->target->query('SELECT * FROM student_fees_master')->fetch(PDO::FETCH_ASSOC);
+        $fgf = $this->target->query('SELECT * FROM fee_groups_feetype')->fetch(PDO::FETCH_ASSOC);
+        $this->assertSame((int) $master['id'], (int) $deposite['student_fees_master_id']);
+        $this->assertSame((int) $fgf['id'], (int) $deposite['fee_groups_feetype_id']);
+        $this->assertNull($deposite['student_transport_fee_id']);
+        $this->assertSame(25, (int) $deposite['tenant_id']);
+
+        $applied = $this->target->query('SELECT * FROM student_applied_discounts')->fetch(PDO::FETCH_ASSOC);
+        $sfDisc = $this->target->query('SELECT * FROM student_fees_discounts')->fetch(PDO::FETCH_ASSOC);
+        $this->assertSame((int) $deposite['id'], (int) $applied['student_fees_deposite_id']);
+        $this->assertSame((int) $sfDisc['id'], (int) $applied['student_fees_discount_id']);
+        $this->assertSame(42, (int) $applied['invoice_id']);
+        $this->assertSame(25, (int) $applied['tenant_id']);
     }
 }
