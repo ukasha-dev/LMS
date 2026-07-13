@@ -65,4 +65,52 @@ final class AdminControllerTenantGateTest extends TestCase
         [$status, ] = $this->curlGet('site/login');
         $this->assertSame(200, $status);
     }
+
+    public function testTenantScopedSessionReachesTheAllowlistedStaffListAndNothingElse(): void
+    {
+        // Credentials below are a KNOWN TEST PASSWORD set on one real
+        // school_saas-only staff row (tenant_id=25), for exactly this
+        // verification purpose -- see the plan's Task 5 "Credential
+        // handling" note. The al_hafeez_campus per-branch database (and
+        // that staff member's real account there) was never touched;
+        // Site.php's real login flow, used by actual schools, has never
+        // read from school_saas at all throughout this whole stage.
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        [$staffListStatus, $staffListBody] = $this->curlGet('admin/staff/tenantStaffList');
+        $this->assertSame(200, $staffListStatus);
+        $this->assertStringContainsString('Tenant Staff List', $staffListBody);
+        $this->assertStringContainsString('Staff (18 real, tenant-scoped rows)', $staffListBody);
+
+        [$dashboardStatus, ] = $this->curlGet('admin/admin/dashboard');
+        $this->assertSame(404, $dashboardStatus);
+
+        [$examgroupStatus, ] = $this->curlGet('admin/examgroup');
+        $this->assertSame(404, $examgroupStatus);
+
+        [$ungatedStaffIndexStatus, ] = $this->curlGet('admin/staff');
+        $this->assertSame(404, $ungatedStaffIndexStatus);
+    }
+
+    private function curlPostPilotLogin(): array
+    {
+        $ch = curl_init(self::BASE_URL . 'pilotlogin/login');
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_COOKIEJAR => $this->cookieJar,
+            CURLOPT_COOKIEFILE => $this->cookieJar,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => http_build_query([
+                'tenant_id' => 25,
+                'email' => 'rabiachauhan923@gmail.com',
+                'password' => 'TestVerify123!',
+            ]),
+        ]);
+        $body = curl_exec($ch);
+        $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        return [$status, $body];
+    }
 }
