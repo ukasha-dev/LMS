@@ -213,10 +213,90 @@ made.
      another real controller only needs one new allowlist entry and one
      gated method, not a rebuilt gate.
 
-3. **Phase 3 — Retrofit remaining modules** (not yet planned)
+3. **Phase 3 — Retrofit remaining modules** (in progress, staged)
    Fees, payroll, library, transport, hostel, HR, messaging, and the rest
-   of the ~150 remaining tables/models. Likely broken into several
-   sub-plans by module, each independently shippable.
+   of the ~150 remaining tables/models. Broken into several sub-plans by
+   module, each independently shippable.
+
+   - **Stage 1 — Fees** — ✅ complete (2026-07-13, plan:
+     `2026-07-13-multi-tenant-phase3-stage1-fees.md`). Extends
+     `school_saas` with ten tenant-scoped tables spanning the deepest FK
+     chain migrated yet (six layers: catalog → session-scoped pricing →
+     per-student assignment → per-student deposit/collection →
+     per-student applied discount) — `feetype`, `fee_groups`,
+     `fees_discounts`, `fee_session_groups`, `fee_groups_feetype`,
+     `fees_reminder`, `student_fees_master`, `student_fees_deposite`,
+     `student_fees_discounts`, `student_applied_discounts`. A new
+     `MergeFeeData` tool (extends `AbstractTenantMerger`) migrates all
+     ten tables in one transaction: six via plain `IdRemapper` (fresh
+     catalog data), four by reconnecting to `student_session` rows
+     migrated in the EARLIER, SEPARATE Stage 3 via
+     `StudentSessionIdResolver` — reused completely unchanged, proving
+     it generalizes to a fourth consumer (after Stage 3 created it,
+     Stage 4 hardened it, Stage 5 proved it reusable). A new `PilotFees`
+     controller proves it end to end. **Two real bugs found and fixed
+     during this stage:** (1) a Post-Task-3 dead-code cleanup — the
+     implementer's own self-review caught a copy-pasted
+     `NaturalKeyIdResolver::resolve(..., 'students', 'admission_no')`
+     call carried over from Stage 5's `MergeExamData`, where a direct
+     `student_id` FK genuinely needed it; neither `student_fees_master`
+     nor `student_fees_discounts` has a `student_id` column at all —
+     both only reference `student_session_id`, already fully resolved by
+     `StudentSessionIdResolver` two lines below — so the computed map was
+     never read anywhere, wasting one full-table resolver query (two
+     SELECTs) on every real run for no purpose; removed before Task 4
+     built more code around the file, no behavior change, still `OK (52
+     tests, ...)`. (2) A Post-Task-6 fix, found by Step 1's first REAL
+     migration run: it threw `RuntimeException: Ambiguous natural key:
+     multiple distinct ids share the value "2025-26" in column "session"
+     of table "sessions"` instead of migrating. Root cause, confirmed by
+     direct SQL: both `al_hafeez_campus.sessions` (source, ids 21 and 26)
+     and `school_saas.sessions` for tenant 25 (target, ids 10 and 15)
+     genuinely have two rows named `"2025-26"` — a known, pre-documented
+     duplicate from Stage 5's planning notes, which Stage 5 sidestepped
+     entirely by using fresh `IdRemapper` instead of natural-key
+     reconnection. This fee stage was the first to actually need
+     natural-key reconnection to the already-migrated `sessions` table,
+     and its Task 2 design called the shared
+     `NaturalKeyIdResolver::resolve()` unscoped — against the WHOLE
+     `sessions` table — which fails fast on ANY duplicate name it finds,
+     regardless of whether that duplicate is ever referenced by the data
+     actually being migrated. Verified via direct SQL that zero fee rows
+     reference session id 21 or 26 — the only sessions any fee data
+     touches are 20 (`"2024-25"`) and 22 (`"2026-27"`), the same two
+     clean sessions Stage 5 already used successfully — the same failure
+     shape already named once in this project as Stage 4's `is_active`
+     saga: "the resolver's uniqueness domain being broader than it needs
+     to be." Fixed by replacing the blanket `NaturalKeyIdResolver::resolve()`
+     call with a new private method local to `MergeFeeData` that
+     resolves and ambiguity-checks ONLY the session ids actually
+     referenced by the four fee tables with a `session_id` column —
+     collision detection is narrowed, not removed: an actually-referenced
+     ambiguous session would still throw. This does NOT touch the shared
+     `NaturalKeyIdResolver.php` (a protected file per this stage's Global
+     Constraints, still used unchanged by other merge tools) — the new
+     logic lives entirely inside `MergeFeeData.php`, which also made
+     `NaturalKeyIdResolver` entirely unused there (its other use was
+     already removed by the Post-Task-3 cleanup), so its `require_once`
+     was removed too. Two new regression tests added (one proving an
+     unrelated duplicate elsewhere in `sessions` does NOT block migration,
+     one proving a genuinely-referenced ambiguous session still throws) —
+     full suite `OK (55 tests, ...)`. The corrected tool was then run
+     against the pilot tenant's real data (`al_hafeez_campus`, tenant
+     25): `Migrated 6 fee types, 26 fee groups, 35 fee discounts, 25 fee
+     session groups, 46 fee group pricing rows, 4 fee reminders, 626
+     student fee assignments, 699 student fee deposits, 215 student fee
+     discounts, and 111 applied discounts for tenant 25.` with no STDERR
+     skip warnings (all four skip counts 0, as predicted by this stage's
+     pre-flight dangling-reference survey) — matching the source exactly
+     on all ten row counts (6 / 26 / 35 / 25 / 46 / 4 / 626 / 699 / 215 /
+     111 on both sides, independently re-verified twice). Spot-checked 5
+     real students with the most fee deposits (admission_no 9839, 9824,
+     7745, 5439, 9315) — fee group names, fee type names, and deposit
+     amounts byte-for-byte identical between `al_hafeez_campus` and
+     `school_saas` despite the expected id remapping — and verified end
+     to end via `PilotFees` (699 `<li>` entries, 0 "Unknown"
+     occurrences).
 
 4. **Phase 4 — API layer** (not yet planned)
    Apply the same treatment to `api/` (112 files) — separate branch-switch
