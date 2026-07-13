@@ -950,6 +950,115 @@ git add docs/superpowers/plans/2026-07-08-multi-tenant-migration-roadmap.md
 git commit -m "docs: mark Phase 2 Stage 6 (real Staff model retrofit) complete"
 ```
 
+**Post-Task-5 fix (found while running Step 1 for real, after the
+Post-Task-4 round-2 fix resolved the `roles`-shape 500):** the real
+staff-list page still 500'd. Root cause: `MY_Controller::__construct()`
+(`application/core/MY_Controller.php:19-20`) unconditionally autoloads
+roughly 100 models for EVERY admin request, and a survey of their
+constructors found 70+ are non-trivial (not just `parent::__construct()`).
+The first one hit, `Class_model`, eagerly calls
+`setting_model->getCurrentSession()`, which queries a `sch_settings`
+table — one that exists in every real per-branch school database (192
+tables) but was never part of `school_saas` (19 tables, built
+incrementally by Stages 1-6, none of which needed school-wide settings
+before now). `Setting_model::get()`'s query additionally joins
+`sessions` (exists, from Stage 5), `languages`, and `currencies`
+(neither existed). Fixing that one crash revealed the same shape of gap
+three more times in immediate succession, as different autoloaded
+models' constructors were reached one at a time: `Studentfeemaster_model`
+needs `student_fees_master` to exist (a self-migrating schema check,
+`ensurePreDiscountColumn()`, that only calls `field_exists()` — never
+fetches real rows), `Module_model` needs `permission_group`, and
+`Emailconfig_model` needs `email_config` (same shape — existence checks,
+not real data fetches).
+
+This is NOT a defect in Tasks 1-4's code — it's a structural property of
+`MY_Controller`'s blanket autoload discovered only by a real
+authenticated request exercising the full chain, which nothing before
+Task 5 ever did (every earlier verification, including two review
+rounds of Task 4, only checked the unauthenticated 307 redirect, which
+returns before `MY_Controller`'s model autoload list is even reached in
+a meaningfully deep way). This is exactly the class of gap Task 5 exists
+to catch.
+
+**Fix, applied and independently re-verified live before being written
+up here:** six tables added to `school_saas` —
+- `currencies`, `languages`: copied in full from `al_hafeez_campus`
+  (77 and 179 rows respectively). Treated as GLOBAL, non-tenant-scoped
+  reference catalogs (world currency/language lists), not per-school
+  data — same content expected across every future tenant, so no
+  `tenant_id` column, no duplication needed per school.
+- `sch_settings`: genuinely per-school data, given a `tenant_id` column
+  (tenant 25's real settings row, copied from `al_hafeez_campus`, with
+  `session_id` remapped from the source's raw id 22 to `school_saas`'s
+  Stage-5-migrated id 11 — both `"2026-27"` — since `Setting_model::get()`
+  joins `sessions` and an unremapped id would either silently join
+  nothing or, worse, join a different tenant's future session row).
+- `email_config`, `permission_group`, `student_fees_master`: created
+  EMPTY, with FK constraints to not-yet-migrated tables (e.g.
+  `fee_session_groups`) deliberately omitted — confirmed via source-code
+  reading (not assumption) that every autoloaded constructor touching
+  these three only performs schema-existence checks for this specific
+  request flow, never a real data fetch, so no real data was migrated
+  for them. If a FUTURE stage retrofits a real controller that DOES
+  fetch real rows from any of these three, that stage must migrate real
+  data into them properly (with `tenant_id` scoping) at that point —
+  this fix does not pretend otherwise.
+
+- [ ] **Fix Step 1: Apply the settings-fixture migration**
+
+Create `sql/multitenant/007_add_settings_fixture_tables.sql` containing
+the six `CREATE TABLE` statements (with `currencies`/`languages` full
+data, `sch_settings` tenant-25 row with the remapped `session_id`, and
+`email_config`/`permission_group`/`student_fees_master` schema-only, no
+data) — see the file for the exact SQL; it was built directly from a
+`mysqldump` of the live, already-verified-working `school_saas` state
+during this fix, then independently re-verified to apply cleanly to a
+fresh scratch database (given a pre-existing `tenants` row for id 25,
+which the real `school_saas` already has from Phase 1).
+
+Run: `"C:\xampp81\mysql\bin\mysql.exe" -u root < sql/multitenant/007_add_settings_fixture_tables.sql`
+
+- [ ] **Fix Step 2: Re-verify Step 1 and Step 2 of this task, for real,
+  with a single consistent cookie jar**
+
+```bash
+CJ=/tmp/stage6_cookiejar.txt
+rm -f "$CJ"
+curl -s -c "$CJ" -b "$CJ" -X POST http://localhost/web-app/pilotlogin/login \
+  -d "tenant_id=25&email=<real tenant-25 staff email>&password=<its test password>"
+curl -s -c "$CJ" -b "$CJ" http://localhost/web-app/admin/staff/tenantStaffList -w "%{http_code}\n"
+curl -s -b "$CJ" -o /dev/null -w "%{http_code}\n" http://localhost/web-app/admin/admin/dashboard
+curl -s -b "$CJ" -o /dev/null -w "%{http_code}\n" http://localhost/web-app/admin/examgroup
+curl -s -b "$CJ" -o /dev/null -w "%{http_code}\n" http://localhost/web-app/admin/staff
+```
+
+Expected: staff list `200` with `<h1>Staff (18 real, tenant-scoped
+rows)</h1>`; all three other routes `404`. (A subtle testing pitfall
+discovered while producing this fix: shell variables like `$COOKIEJAR`
+do NOT persist between separate tool-call/terminal invocations in some
+environments — always use a fixed file path and confirm the SAME cookie
+file is used across every curl call in one script, or the "blocked"
+routes will appear to redirect to login instead of actually exercising
+the allowlist gate, which looks like a gate failure but is actually a
+test-harness mistake. Verified this distinction directly: an inconsistent
+cookie jar produces `307` to `site/login` on all three; a consistent
+one produces `404` on all three, as expected.)
+
+- [ ] **Fix Step 3: Run the full suite**
+
+Run: `"C:\xampp81\php\php.exe" vendor/bin/phpunit`
+Expected: `OK (48 tests, ...)` (unchanged — this fix adds no test files
+of its own; Step 3 above already covers the credentialed regression
+test).
+
+- [ ] **Fix Step 4: Commit**
+
+```bash
+git add sql/multitenant/007_add_settings_fixture_tables.sql
+git commit -m "fix: add settings/reference fixture tables MY_Controller's autoload chain needs against school_saas"
+```
+
 ---
 
 ### Final whole-stage review (after Task 5)
