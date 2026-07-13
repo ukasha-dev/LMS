@@ -1396,4 +1396,9 @@ class Studentfeemaster_model extends MY_Model
         $result = $query->result();
         return $result;
     }
+
+    public function getTenantScopedFeesList($tenantId)
+    {
+        return $this->db->where('tenant_id', $tenantId)->get('student_fees_deposite')->result_array();
+    }
 }

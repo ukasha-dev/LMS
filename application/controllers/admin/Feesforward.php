@@ -193,4 +193,17 @@ class Feesforward extends Admin_Controller
         return $amount;
     }
 
+    public function tenantFeesList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $feesList = $this->studentfeemaster_model->getTenantScopedFeesList((int) $tenantId);
+        $this->load->view('admin/feesforward/tenant_fees_list', ['feesList' => $feesList]);
+    }
+
 }
