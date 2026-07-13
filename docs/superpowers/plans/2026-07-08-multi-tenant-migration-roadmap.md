@@ -344,7 +344,7 @@ made.
 
    - **Stage 3 — Second real controller retrofit (Feesforward)** — ✅
      complete (2026-07-13, plan:
-     `2026-07-13-multi-tenant-phase3-stage3-feesforward-retrofit.md`).
+     `2026-07-13-multi-tenant-phase3-stage3-second-controller-retrofit.md`).
      The second stage to touch code in the LIVE admin panel's shared
      execution path (after Phase 2 Stage 6's `Staff.php`), and a
      deliberately small one: unlike Stage 6, no new database migration
