@@ -342,6 +342,55 @@ made.
      header reading "Staff Leave Allotments (32 results, 5 departments,
      12 designations)").
 
+   - **Stage 3 — Second real controller retrofit (Feesforward)** — ✅
+     complete (2026-07-13, plan:
+     `2026-07-13-multi-tenant-phase3-stage3-feesforward-retrofit.md`).
+     The second stage to touch code in the LIVE admin panel's shared
+     execution path (after Phase 2 Stage 6's `Staff.php`), and a
+     deliberately small one: unlike Stage 6, no new database migration
+     or settings-fixture tables were needed — `student_fees_deposite`
+     was already migrated by Phase 3 Stage 1 (699 real rows for tenant
+     25), and the `sch_settings`/`languages`/`currencies` fixture tables
+     `MY_Controller`'s autoload chain needs were already put in place by
+     Stage 6's Post-Task-5 fix. This stage's only job was to prove Stage
+     6's allowlist-gate mechanism (`Admin_Controller`'s `admin_tenant_id`
+     check, generalized from a single `if` to a keyed array in this
+     stage's own Task 1) actually generalizes to a second real route, not
+     just in theory. It did, exactly as Stage 6's final review predicted:
+     the allowlist gained one new entry (`'feesforward' =>
+     'tenantfeeslist'`) alongside the pre-existing `'staff' =>
+     'tenantstafflist'` entry, with zero changes to the gate's
+     conditional logic, `Db_manager`'s connection-routing gate, or any
+     other shared file — a one-line array addition, no gate rebuild.
+     `Feesforward.php`/`Studentfeemaster_model.php` gained one new
+     tenant-scoped method each (`tenantFeesList()` /
+     `getTenantScopedFeesList($tenantId)`, an explicit `WHERE tenant_id
+     = ?` filter matching the query-scoping strategy locked in during
+     Phase 2 Stage 6), added surgically via `git hash-object`/
+     `git update-index` to avoid sweeping in substantial unrelated
+     pre-existing uncommitted work already present in both files before
+     this stage began (documented in this stage's Task 2 report). No
+     bugs found during implementation or verification — the smooth
+     landing Stage 6's final review anticipated for the next controller,
+     now that the hard infrastructure cost (the gate itself, the
+     `Db_manager` routing gate, and the settings-fixture tables) had
+     already been paid down. Verified end to end with a real `PilotLogin`
+     authentication, in one script against a single fixed cookie jar (the
+     documented shell-variable-persistence pitfall from earlier stages):
+     the real `admin/staff/tenantStaffList` still returns the real 18
+     tenant-25 staff rows (proving the generalization didn't regress the
+     original route), the real `admin/feesforward/tenantFeesList` returns
+     the real 699 tenant-25 fee-deposit rows, and `admin/admin/dashboard`,
+     `admin/examgroup`, the real un-gated `admin/staff` index, AND the
+     real un-gated `admin/feesforward` index (the write-heavy carry-forward
+     workflow this stage deliberately never touches) all return `404` for
+     that same tenant-scoped session — proving the allowlist is specific
+     to the exact two gated methods, not either controller as a whole.
+     One new credentialed regression test added to
+     `tests/controllers/AdminControllerTenantGateTest.php` codifying all
+     of the above; full suite `OK (59 tests, 231 assertions)` (58 from
+     Phase 3 Stage 2 + this stage's 1 new test, no regressions).
+
 4. **Phase 4 — API layer** (not yet planned)
    Apply the same treatment to `api/` (112 files) — separate branch-switch
    logic today, needs its own tenant-scoping pass.
