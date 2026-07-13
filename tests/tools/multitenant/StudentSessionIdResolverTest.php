@@ -53,12 +53,16 @@ final class StudentSessionIdResolverTest extends TestCase
         $this->source->exec("INSERT INTO students (id, admission_no) VALUES (101, 'ADM-001')");
         $this->source->exec("INSERT INTO classes (id, class) VALUES (201, 'Class 1')");
         $this->source->exec("INSERT INTO sections (id, section) VALUES (301, 'A')");
-        $this->source->exec('INSERT INTO student_session (id, student_id, class_id, section_id) VALUES (401, 101, 201, 301)');
+        // created_at pinned identically on both sides -- the resolver's
+        // composite key includes created_at, and two separate INSERTs
+        // relying on CURRENT_TIMESTAMP's default can straddle a
+        // wall-clock second boundary and mismatch, flaking this test.
+        $this->source->exec("INSERT INTO student_session (id, student_id, class_id, section_id, created_at) VALUES (401, 101, 201, 301, '2025-01-01 00:00:00')");
 
         $this->target->exec("INSERT INTO students (id, admission_no, tenant_id) VALUES (1, 'ADM-001', 25)");
         $this->target->exec("INSERT INTO classes (id, class, tenant_id) VALUES (2, 'Class 1', 25)");
         $this->target->exec("INSERT INTO sections (id, section, tenant_id) VALUES (3, 'A', 25)");
-        $this->target->exec('INSERT INTO student_session (id, student_id, class_id, section_id, tenant_id) VALUES (4, 1, 2, 3, 25)');
+        $this->target->exec("INSERT INTO student_session (id, student_id, class_id, section_id, tenant_id, created_at) VALUES (4, 1, 2, 3, 25, '2025-01-01 00:00:00')");
 
         $map = $this->resolver->resolve($this->source, $this->target, 25);
 
@@ -70,12 +74,15 @@ final class StudentSessionIdResolverTest extends TestCase
         $this->source->exec("INSERT INTO students (id, admission_no) VALUES (101, 'ADM-001'), (102, 'ADM-002')");
         $this->source->exec("INSERT INTO classes (id, class) VALUES (201, 'Class 1')");
         $this->source->exec("INSERT INTO sections (id, section) VALUES (301, 'A')");
-        $this->source->exec('INSERT INTO student_session (id, student_id, class_id, section_id) VALUES (401, 101, 201, 301), (402, 102, 201, 301)');
+        $this->source->exec(
+            "INSERT INTO student_session (id, student_id, class_id, section_id, created_at) VALUES"
+            . " (401, 101, 201, 301, '2025-01-01 00:00:00'), (402, 102, 201, 301, '2025-01-01 00:00:00')"
+        );
 
         $this->target->exec("INSERT INTO students (id, admission_no, tenant_id) VALUES (1, 'ADM-001', 25)");
         $this->target->exec("INSERT INTO classes (id, class, tenant_id) VALUES (2, 'Class 1', 25)");
         $this->target->exec("INSERT INTO sections (id, section, tenant_id) VALUES (3, 'A', 25)");
-        $this->target->exec('INSERT INTO student_session (id, student_id, class_id, section_id, tenant_id) VALUES (4, 1, 2, 3, 25)');
+        $this->target->exec("INSERT INTO student_session (id, student_id, class_id, section_id, tenant_id, created_at) VALUES (4, 1, 2, 3, 25, '2025-01-01 00:00:00')");
 
         $map = $this->resolver->resolve($this->source, $this->target, 25);
 
