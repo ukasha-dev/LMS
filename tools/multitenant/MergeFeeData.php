@@ -115,9 +115,65 @@ final class MergeFeeData extends AbstractTenantMerger
             $reminderRemap->remapId((int) $row['id']);
         }
 
+        $studentResolver = new NaturalKeyIdResolver();
+        $studentMap = $studentResolver->resolve($this->source, $this->target, $this->tenantId, 'students', 'admission_no');
+
+        $studentSessionResolver = new StudentSessionIdResolver();
+        $studentSessionMap = $studentSessionResolver->resolve($this->source, $this->target, $this->tenantId);
+
+        $sfmRemap = new IdRemapper($this->nextId('student_fees_master'));
+        $sfmRows = $this->fetchAll(
+            'SELECT id, is_system, student_session_id, fee_session_group_id, amount, pre_discount, is_active, created_at, updated_at'
+            . ' FROM student_fees_master'
+        );
+        $sfmSourceTotal = count($sfmRows);
+        $sfmSkipped = 0;
+        $sfmRowsToInsert = [];
+        foreach ($sfmRows as $row) {
+            $oldId = (int) $row['id'];
+            $oldStudentSessionId = $row['student_session_id'] !== null ? (int) $row['student_session_id'] : null;
+            $oldFsgId = $row['fee_session_group_id'] !== null ? (int) $row['fee_session_group_id'] : null;
+            if (($oldStudentSessionId !== null && !isset($studentSessionMap[$oldStudentSessionId]))
+                || ($oldFsgId !== null && !isset($fsgRowsToInsert[$oldFsgId]))
+            ) {
+                $sfmSkipped++;
+                continue;
+            }
+            $sfmRemap->remapId($oldId);
+            $row['id'] = $sfmRemap->getMapping($oldId);
+            $row['student_session_id'] = $oldStudentSessionId !== null ? $studentSessionMap[$oldStudentSessionId] : null;
+            $row['fee_session_group_id'] = $oldFsgId !== null ? $fsgRemap->getMapping($oldFsgId) : null;
+            $sfmRowsToInsert[$oldId] = $row;
+        }
+
+        $sfDiscRemap = new IdRemapper($this->nextId('student_fees_discounts'));
+        $sfDiscRows = $this->fetchAll(
+            'SELECT id, student_session_id, fees_discount_id, status, payment_id, description, is_active, created_at, updated_at'
+            . ' FROM student_fees_discounts'
+        );
+        $sfDiscSourceTotal = count($sfDiscRows);
+        $sfDiscSkipped = 0;
+        $sfDiscRowsToInsert = [];
+        foreach ($sfDiscRows as $row) {
+            $oldId = (int) $row['id'];
+            $oldStudentSessionId = $row['student_session_id'] !== null ? (int) $row['student_session_id'] : null;
+            $oldFeesDiscountId = $row['fees_discount_id'] !== null ? (int) $row['fees_discount_id'] : null;
+            if (($oldStudentSessionId !== null && !isset($studentSessionMap[$oldStudentSessionId]))
+                || ($oldFeesDiscountId !== null && !isset($feesDiscountRowsToInsert[$oldFeesDiscountId]))
+            ) {
+                $sfDiscSkipped++;
+                continue;
+            }
+            $sfDiscRemap->remapId($oldId);
+            $row['id'] = $sfDiscRemap->getMapping($oldId);
+            $row['student_session_id'] = $oldStudentSessionId !== null ? $studentSessionMap[$oldStudentSessionId] : null;
+            $row['fees_discount_id'] = $oldFeesDiscountId !== null ? $feesDiscountRemap->getMapping($oldFeesDiscountId) : null;
+            $sfDiscRowsToInsert[$oldId] = $row;
+        }
+
         $this->inTransaction(function () use (
             $feetypeRowsToInsert, $feeGroups, $feesDiscountRowsToInsert, $fsgRowsToInsert, $fgfRowsToInsert, $reminders,
-            $feeGroupRemap, $reminderRemap
+            $feeGroupRemap, $reminderRemap, $sfmRowsToInsert, $sfDiscRowsToInsert
         ) {
             foreach ($feetypeRowsToInsert as $row) {
                 $this->insertRow('feetype', $row);
@@ -139,6 +195,12 @@ final class MergeFeeData extends AbstractTenantMerger
                 $row['id'] = $reminderRemap->getMapping((int) $row['id']);
                 $this->insertRow('fees_reminder', $row);
             }
+            foreach ($sfmRowsToInsert as $row) {
+                $this->insertRow('student_fees_master', $row);
+            }
+            foreach ($sfDiscRowsToInsert as $row) {
+                $this->insertRow('student_fees_discounts', $row);
+            }
         });
 
         return [
@@ -156,6 +218,12 @@ final class MergeFeeData extends AbstractTenantMerger
             'fee_groups_feetype_source_total' => $fgfSourceTotal,
             'fee_groups_feetype_skipped' => $fgfSkipped,
             'fees_reminder_migrated' => count($reminders),
+            'student_fees_master_migrated' => count($sfmRowsToInsert),
+            'student_fees_master_source_total' => $sfmSourceTotal,
+            'student_fees_master_skipped' => $sfmSkipped,
+            'student_fees_discounts_migrated' => count($sfDiscRowsToInsert),
+            'student_fees_discounts_source_total' => $sfDiscSourceTotal,
+            'student_fees_discounts_skipped' => $sfDiscSkipped,
         ];
     }
 }

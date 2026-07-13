@@ -45,6 +45,19 @@ final class MergeFeeDataTest extends TestCase
             . ' created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP';
         $reminderSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, reminder_type VARCHAR(10) DEFAULT NULL, day INT DEFAULT NULL,'
             . ' is_active INT DEFAULT 0, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP';
+        $studentSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, admission_no VARCHAR(100) DEFAULT NULL';
+        $classSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, class VARCHAR(60) DEFAULT NULL';
+        $sectionSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, section VARCHAR(60) DEFAULT NULL';
+        $studentSessionSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, student_id INT NOT NULL, class_id INT NOT NULL, section_id INT NOT NULL,'
+            . " created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP";
+        $sfmSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, is_system INT NOT NULL DEFAULT 0, student_session_id INT DEFAULT NULL,'
+            . ' fee_session_group_id INT DEFAULT NULL, amount FLOAT(10,2) DEFAULT 0.00, pre_discount DECIMAL(10,2) NOT NULL DEFAULT 0.00,'
+            . ' is_active VARCHAR(10) NOT NULL DEFAULT \'no\','
+            . ' created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP';
+        $sfDiscSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, student_session_id INT DEFAULT NULL, fees_discount_id INT DEFAULT NULL,'
+            . ' status VARCHAR(20) DEFAULT \'assigned\', payment_id VARCHAR(50) DEFAULT NULL, description TEXT DEFAULT NULL,'
+            . ' is_active VARCHAR(10) NOT NULL DEFAULT \'no\','
+            . ' created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP';
 
         foreach ([$this->source, $this->target] as $db) {
             $tenantCol = $db === $this->target ? ', tenant_id INT NOT NULL' : '';
@@ -55,6 +68,12 @@ final class MergeFeeDataTest extends TestCase
             $db->exec("CREATE TABLE fee_session_groups ({$fsgSchema}{$tenantCol})");
             $db->exec("CREATE TABLE fee_groups_feetype ({$fgfSchema}{$tenantCol})");
             $db->exec("CREATE TABLE fees_reminder ({$reminderSchema}{$tenantCol})");
+            $db->exec("CREATE TABLE students ({$studentSchema}{$tenantCol})");
+            $db->exec("CREATE TABLE classes ({$classSchema}{$tenantCol})");
+            $db->exec("CREATE TABLE sections ({$sectionSchema}{$tenantCol})");
+            $db->exec("CREATE TABLE student_session ({$studentSessionSchema}{$tenantCol})");
+            $db->exec("CREATE TABLE student_fees_master ({$sfmSchema}{$tenantCol})");
+            $db->exec("CREATE TABLE student_fees_discounts ({$sfDiscSchema}{$tenantCol})");
         }
     }
 
@@ -116,5 +135,72 @@ final class MergeFeeDataTest extends TestCase
         $this->assertSame((int) $session['id'], (int) $fgf['session_id']);
         $this->assertSame('1500.00', $fgf['amount']);
         $this->assertSame(25, (int) $fgf['tenant_id']);
+    }
+
+    public function testReconnectsStudentFeesMasterAndDiscountsToAlreadyMigratedData(): void
+    {
+        // Catalog chain (same shape as the Part A test).
+        $this->source->exec("INSERT INTO sessions (id, session) VALUES (20, '2024-25')");
+        $this->target->exec("INSERT INTO sessions (id, session, tenant_id) VALUES (2, '2024-25', 25)");
+        $this->source->exec("INSERT INTO fee_groups (id, name, nature) VALUES (8, 'General Fee', 'monthly')");
+        $this->source->exec("INSERT INTO fee_session_groups (id, fee_groups_id, session_id) VALUES (30, 8, 20)");
+        $this->source->exec("INSERT INTO fees_discounts (id, session_id, name, code, type, percentage) VALUES (12, 20, 'Sibling Discount', 'SIB', 'percentage', 10.00)");
+
+        // Student/session chain -- old ids in source (100s/400s), already
+        // migrated NEW ids in target (1s/4s), deliberately non-overlapping.
+        $this->source->exec("INSERT INTO students (id, admission_no) VALUES (101, 'ADM-001')");
+        $this->source->exec("INSERT INTO classes (id, class) VALUES (201, 'Class 1')");
+        $this->source->exec("INSERT INTO sections (id, section) VALUES (301, 'A')");
+        $this->source->exec("INSERT INTO student_session (id, student_id, class_id, section_id, created_at) VALUES (401, 101, 201, 301, '2025-01-01 00:00:00')");
+        $this->target->exec("INSERT INTO students (id, admission_no, tenant_id) VALUES (1, 'ADM-001', 25)");
+        $this->target->exec("INSERT INTO classes (id, class, tenant_id) VALUES (2, 'Class 1', 25)");
+        $this->target->exec("INSERT INTO sections (id, section, tenant_id) VALUES (3, 'A', 25)");
+        $this->target->exec("INSERT INTO student_session (id, student_id, class_id, section_id, tenant_id, created_at) VALUES (4, 1, 2, 3, 25, '2025-01-01 00:00:00')");
+
+        $this->source->exec(
+            "INSERT INTO student_fees_master (id, student_session_id, fee_session_group_id, amount) VALUES (500, 401, 30, 1500.00)"
+        );
+        $this->source->exec(
+            "INSERT INTO student_fees_discounts (id, student_session_id, fees_discount_id, status) VALUES (600, 401, 12, 'assigned')"
+        );
+
+        $merger = new MergeFeeData($this->source, $this->target, 25);
+        $result = $merger->run();
+
+        $this->assertSame(1, $result['student_fees_master_migrated']);
+        $this->assertSame(1, $result['student_fees_master_source_total']);
+        $this->assertSame(0, $result['student_fees_master_skipped']);
+        $this->assertSame(1, $result['student_fees_discounts_migrated']);
+        $this->assertSame(1, $result['student_fees_discounts_source_total']);
+        $this->assertSame(0, $result['student_fees_discounts_skipped']);
+
+        $sfm = $this->target->query('SELECT * FROM student_fees_master')->fetch(PDO::FETCH_ASSOC);
+        $this->assertSame(4, (int) $sfm['student_session_id']);
+        $this->assertSame(25, (int) $sfm['tenant_id']);
+
+        $sfDisc = $this->target->query('SELECT * FROM student_fees_discounts')->fetch(PDO::FETCH_ASSOC);
+        $this->assertSame(4, (int) $sfDisc['student_session_id']);
+        $this->assertSame(25, (int) $sfDisc['tenant_id']);
+    }
+
+    public function testSkipsStudentFeesRowsReferencingAnUnmigratedStudentSession(): void
+    {
+        $this->source->exec("INSERT INTO fee_groups (id, name, nature) VALUES (8, 'General Fee', 'monthly')");
+        $this->source->exec("INSERT INTO sessions (id, session) VALUES (20, '2024-25')");
+        $this->target->exec("INSERT INTO sessions (id, session, tenant_id) VALUES (2, '2024-25', 25)");
+        $this->source->exec("INSERT INTO fee_session_groups (id, fee_groups_id, session_id) VALUES (30, 8, 20)");
+        // student_session_id 999 has no corresponding row anywhere --
+        // simulates a dangling reference that must be skipped, not
+        // inserted broken, and must be counted.
+        $this->source->exec(
+            "INSERT INTO student_fees_master (id, student_session_id, fee_session_group_id, amount) VALUES (500, 999, 30, 1500.00)"
+        );
+
+        $merger = new MergeFeeData($this->source, $this->target, 25);
+        $result = $merger->run();
+
+        $this->assertSame(0, $result['student_fees_master_migrated']);
+        $this->assertSame(1, $result['student_fees_master_source_total']);
+        $this->assertSame(1, $result['student_fees_master_skipped']);
     }
 }
