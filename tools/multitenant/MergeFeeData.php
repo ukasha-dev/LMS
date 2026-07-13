@@ -2,20 +2,36 @@
 
 require_once __DIR__ . '/AbstractTenantMerger.php';
 require_once __DIR__ . '/IdRemapper.php';
-require_once __DIR__ . '/NaturalKeyIdResolver.php';
 require_once __DIR__ . '/StudentSessionIdResolver.php';
 
 final class MergeFeeData extends AbstractTenantMerger
 {
     public function run(): array
     {
-        $sessionResolver = new NaturalKeyIdResolver();
-        $sessionMap = $sessionResolver->resolve($this->source, $this->target, $this->tenantId, 'sessions', 'session');
-
-        $feetypeRemap = new IdRemapper($this->nextId('feetype'));
         $feetypes = $this->fetchAll(
             'SELECT id, is_system, type, code, is_active, description, session_id, nature, created_at, updated_at FROM feetype'
         );
+        $feesDiscounts = $this->fetchAll(
+            'SELECT id, session_id, name, code, type, percentage, amount, discount_limit, expire_date, description, is_active, created_at, updated_at'
+            . ' FROM fees_discounts'
+        );
+        $fsgRows = $this->fetchAll('SELECT id, fee_groups_id, session_id, is_active, created_at, updated_at FROM fee_session_groups');
+        $fgfRows = $this->fetchAll(
+            'SELECT id, fee_session_group_id, fee_groups_id, feetype_id, session_id, amount, fine_type, due_date,'
+            . ' fine_percentage, fine_amount, fine_per_day, is_active, created_at, updated_at FROM fee_groups_feetype'
+        );
+
+        $referencedSessionIds = [];
+        foreach ([$feetypes, $feesDiscounts, $fsgRows, $fgfRows] as $rowSet) {
+            foreach ($rowSet as $row) {
+                if ($row['session_id'] !== null) {
+                    $referencedSessionIds[] = (int) $row['session_id'];
+                }
+            }
+        }
+        $sessionMap = $this->resolveReferencedSessionIds($referencedSessionIds);
+
+        $feetypeRemap = new IdRemapper($this->nextId('feetype'));
         $feetypeSourceTotal = count($feetypes);
         $feetypeSkipped = 0;
         $feetypeRowsToInsert = [];
@@ -39,10 +55,6 @@ final class MergeFeeData extends AbstractTenantMerger
         }
 
         $feesDiscountRemap = new IdRemapper($this->nextId('fees_discounts'));
-        $feesDiscounts = $this->fetchAll(
-            'SELECT id, session_id, name, code, type, percentage, amount, discount_limit, expire_date, description, is_active, created_at, updated_at'
-            . ' FROM fees_discounts'
-        );
         $feesDiscountSourceTotal = count($feesDiscounts);
         $feesDiscountSkipped = 0;
         $feesDiscountRowsToInsert = [];
@@ -60,7 +72,6 @@ final class MergeFeeData extends AbstractTenantMerger
         }
 
         $fsgRemap = new IdRemapper($this->nextId('fee_session_groups'));
-        $fsgRows = $this->fetchAll('SELECT id, fee_groups_id, session_id, is_active, created_at, updated_at FROM fee_session_groups');
         $fsgSourceTotal = count($fsgRows);
         $fsgSkipped = 0;
         $fsgRowsToInsert = [];
@@ -80,10 +91,6 @@ final class MergeFeeData extends AbstractTenantMerger
         }
 
         $fgfRemap = new IdRemapper($this->nextId('fee_groups_feetype'));
-        $fgfRows = $this->fetchAll(
-            'SELECT id, fee_session_group_id, fee_groups_id, feetype_id, session_id, amount, fine_type, due_date,'
-            . ' fine_percentage, fine_amount, fine_per_day, is_active, created_at, updated_at FROM fee_groups_feetype'
-        );
         $fgfSourceTotal = count($fgfRows);
         $fgfSkipped = 0;
         $fgfRowsToInsert = [];
@@ -287,6 +294,44 @@ final class MergeFeeData extends AbstractTenantMerger
             'student_applied_discounts_source_total' => $sadSourceTotal,
             'student_applied_discounts_skipped' => $sadSkipped,
         ];
+    }
+
+    private function resolveReferencedSessionIds(array $oldSessionIds): array
+    {
+        $oldSessionIds = array_values(array_unique($oldSessionIds));
+        if ($oldSessionIds === []) {
+            return [];
+        }
+
+        $sourceRows = $this->fetchAll('SELECT id, session FROM sessions');
+        $sourceNameById = [];
+        foreach ($sourceRows as $row) {
+            $sourceNameById[(int) $row['id']] = $row['session'];
+        }
+
+        $targetStmt = $this->target->prepare('SELECT id, session FROM sessions WHERE tenant_id = :tenant_id');
+        $targetStmt->execute([':tenant_id' => $this->tenantId]);
+        $targetRows = $targetStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $oldToNew = [];
+        foreach ($oldSessionIds as $oldId) {
+            $name = $sourceNameById[$oldId] ?? null;
+            if ($name === null) {
+                continue;
+            }
+            $matches = array_values(array_filter($targetRows, static fn ($row) => $row['session'] === $name));
+            if (count($matches) > 1) {
+                throw new RuntimeException(
+                    "Ambiguous natural key: multiple distinct ids share the value \"{$name}\" in column \"session\""
+                    . " of table \"sessions\" — cannot safely resolve. Manual investigation required."
+                );
+            }
+            if (count($matches) === 1) {
+                $oldToNew[$oldId] = (int) $matches[0]['id'];
+            }
+        }
+
+        return $oldToNew;
     }
 }
 

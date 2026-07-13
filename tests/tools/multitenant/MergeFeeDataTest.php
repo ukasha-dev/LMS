@@ -145,6 +145,44 @@ final class MergeFeeDataTest extends TestCase
         $this->assertSame(25, (int) $fgf['tenant_id']);
     }
 
+    public function testResolvesReferencedSessionsEvenWhenAnUnrelatedDuplicateSessionNameExistsElsewhere(): void
+    {
+        // Mirrors the real al_hafeez_campus collision: TWO unrelated
+        // sessions elsewhere in the table share a name ("2025-26"), but
+        // nothing being migrated references either of them. Must NOT
+        // throw, and the actually-referenced session must still resolve
+        // correctly.
+        $this->source->exec("INSERT INTO sessions (id, session) VALUES (20, '2024-25'), (21, '2025-26'), (26, '2025-26')");
+        $this->target->exec("INSERT INTO sessions (id, session, tenant_id) VALUES (2, '2024-25', 25), (10, '2025-26', 25), (15, '2025-26', 25)");
+
+        $this->source->exec("INSERT INTO feetype (id, type, code, nature, session_id) VALUES (5, 'Tuition Fee', 'TUI', 'monthly', 20)");
+
+        $merger = new MergeFeeData($this->source, $this->target, 25);
+        $result = $merger->run();
+
+        $this->assertSame(1, $result['feetype_migrated']);
+        $this->assertSame(0, $result['feetype_skipped']);
+
+        $feetype = $this->target->query('SELECT * FROM feetype')->fetch(PDO::FETCH_ASSOC);
+        $this->assertSame(2, (int) $feetype['session_id']);
+    }
+
+    public function testThrowsWhenAnActuallyReferencedSessionNameIsAmbiguous(): void
+    {
+        // Unlike the test above, THIS session name collision is directly
+        // referenced by the row being migrated -- must still throw,
+        // exactly like the pre-fix behavior for a genuine ambiguity.
+        $this->source->exec("INSERT INTO sessions (id, session) VALUES (20, '2024-25')");
+        $this->target->exec("INSERT INTO sessions (id, session, tenant_id) VALUES (2, '2024-25', 25), (3, '2024-25', 25)");
+
+        $this->source->exec("INSERT INTO feetype (id, type, code, nature, session_id) VALUES (5, 'Tuition Fee', 'TUI', 'monthly', 20)");
+
+        $merger = new MergeFeeData($this->source, $this->target, 25);
+
+        $this->expectException(RuntimeException::class);
+        $merger->run();
+    }
+
     public function testReconnectsStudentFeesMasterAndDiscountsToAlreadyMigratedData(): void
     {
         // Catalog chain (same shape as the Part A test).
