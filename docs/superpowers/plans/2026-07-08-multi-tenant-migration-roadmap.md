@@ -440,8 +440,8 @@ made.
      methods, never opening up a whole controller or an unrelated one. One
      new credentialed regression test added to
      `tests/controllers/AdminControllerTenantGateTest.php` codifying all
-     of the above; full suite `OK (61 tests, 246 assertions)` (60 from
-     Phase 3 Stage 3 + this stage's 1 new test, no regressions).
+     of the above; full suite `OK (61 tests, 246 assertions)` (59 from
+     Phase 3 Stage 3 + this stage's 2 new tests, no regressions).
 
 4. **Phase 4 — API layer** (not yet planned)
    Apply the same treatment to `api/` (112 files) — separate branch-switch
