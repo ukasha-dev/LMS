@@ -391,6 +391,58 @@ made.
      of the above; full suite `OK (59 tests, 231 assertions)` (58 from
      Phase 3 Stage 2 + this stage's 1 new test, no regressions).
 
+   - **Stage 4 — Third real controller retrofit (Examgroup)** — ✅
+     complete (2026-07-13, plan:
+     `2026-07-13-multi-tenant-phase3-stage4-third-controller-retrofit.md`).
+     The THIRD stage to touch code in the LIVE admin panel's shared
+     execution path (after Phase 2 Stage 6's `Staff.php` and Phase 3
+     Stage 3's `Feesforward.php`), and — like Stage 3 before it — a
+     deliberately small one: no new database migration was needed at all,
+     since `exam_group_exam_results` (2785 real rows for tenant 25) was
+     already migrated by an earlier stage, and the
+     `sch_settings`/`languages`/`currencies` fixture tables
+     `MY_Controller`'s autoload chain needs were already put in place by
+     Stage 6's Post-Task-5 fix and reused unchanged by Stage 3. This
+     stage's only job was to prove the allowlist-gate mechanism
+     (`Admin_Controller`'s `admin_tenant_id` check in
+     `application/core/MY_Controller.php`, generalized from a single `if`
+     to a keyed array by Stage 3's own Task 1) generalizes to a THIRD real
+     route, not just two. It did, exactly as Stage 3's final review
+     predicted: the allowlist gained one new entry (`'examgroup' =>
+     'tenantexamresultslist'`) alongside the two pre-existing entries
+     (`'staff' => 'tenantstafflist'`, `'feesforward' =>
+     'tenantfeeslist'`), with zero changes to the gate's conditional
+     logic, `Db_manager`'s connection-routing gate, or any other shared
+     file — another one-line array addition, no gate rebuild.
+     `Examgroup.php`/`Examgroup_model.php` gained one new tenant-scoped
+     method each (`tenantExamResultsList()` /
+     `getTenantScopedExamResultsList($tenantId)`, the same explicit
+     `WHERE tenant_id = ?` filter strategy locked in during Phase 2 Stage
+     6 and reused unchanged by Stage 3). This is the SECOND consecutive
+     stage to add "one allowlist entry and one gated method" with zero
+     new infrastructure needed — confirming the mechanism now scales
+     cleanly to three controllers at the same one-line-per-stage cost, not
+     just two. No bugs found during implementation or verification.
+     Verified end to end with a real `PilotLogin` authentication, in one
+     script against a single fixed cookie jar (the documented
+     shell-variable-persistence pitfall from earlier stages): the real
+     `admin/staff/tenantStaffList` still returns the real 18 tenant-25
+     staff rows and `admin/feesforward/tenantFeesList` still returns the
+     real 699 tenant-25 fee-deposit rows (proving the third allowlist
+     entry didn't regress either prior route), the real
+     `admin/examgroup/tenantExamResultsList` returns the real 2785
+     tenant-25 exam-result rows (matching Phase 2 Stage 5's migrated count
+     exactly), and `admin/admin/dashboard`, the real un-gated `admin/staff`
+     index, the real un-gated `admin/feesforward` index, the real un-gated
+     `admin/examgroup` index, AND a completely unrelated real controller
+     (`admin/examresult`) all return `404` for that same tenant-scoped
+     session — proving the allowlist is specific to the exact three gated
+     methods, never opening up a whole controller or an unrelated one. One
+     new credentialed regression test added to
+     `tests/controllers/AdminControllerTenantGateTest.php` codifying all
+     of the above; full suite `OK (61 tests, 246 assertions)` (60 from
+     Phase 3 Stage 3 + this stage's 1 new test, no regressions).
+
 4. **Phase 4 — API layer** (not yet planned)
    Apply the same treatment to `api/` (112 files) — separate branch-switch
    logic today, needs its own tenant-scoping pass.
