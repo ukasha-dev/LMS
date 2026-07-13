@@ -115,9 +115,6 @@ final class MergeFeeData extends AbstractTenantMerger
             $reminderRemap->remapId((int) $row['id']);
         }
 
-        $studentResolver = new NaturalKeyIdResolver();
-        $studentMap = $studentResolver->resolve($this->source, $this->target, $this->tenantId, 'students', 'admission_no');
-
         $studentSessionResolver = new StudentSessionIdResolver();
         $studentSessionMap = $studentSessionResolver->resolve($this->source, $this->target, $this->tenantId);
 
