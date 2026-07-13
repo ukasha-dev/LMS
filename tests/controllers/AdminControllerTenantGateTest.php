@@ -126,6 +126,22 @@ final class AdminControllerTenantGateTest extends TestCase
         $this->assertSame(404, $feesforwardIndexStatus);
     }
 
+    public function testAllowlistGateStillAllowsBothPriorRoutesAfterAThirdIsAdded(): void
+    {
+        // Regression proof for Task 1's third allowlist entry: both
+        // pre-existing routes must keep working exactly as before.
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        [$staffListStatus, $staffListBody] = $this->curlGet('admin/staff/tenantStaffList');
+        $this->assertSame(200, $staffListStatus);
+        $this->assertStringContainsString('Tenant Staff List', $staffListBody);
+
+        [$feesListStatus, $feesListBody] = $this->curlGet('admin/feesforward/tenantFeesList');
+        $this->assertSame(200, $feesListStatus);
+        $this->assertStringContainsString('Tenant Fees List', $feesListBody);
+    }
+
     private function curlPostPilotLogin(): array
     {
         $ch = curl_init(self::BASE_URL . 'pilotlogin/login');
