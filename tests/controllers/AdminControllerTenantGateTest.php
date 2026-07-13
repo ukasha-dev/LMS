@@ -106,6 +106,26 @@ final class AdminControllerTenantGateTest extends TestCase
         $this->assertStringContainsString('Tenant Staff List', $staffListBody);
     }
 
+    public function testTenantScopedSessionReachesBothAllowlistedRoutesAndNothingElse(): void
+    {
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        [$staffListStatus, $staffListBody] = $this->curlGet('admin/staff/tenantStaffList');
+        $this->assertSame(200, $staffListStatus);
+        $this->assertStringContainsString('Tenant Staff List', $staffListBody);
+
+        [$feesListStatus, $feesListBody] = $this->curlGet('admin/feesforward/tenantFeesList');
+        $this->assertSame(200, $feesListStatus);
+        $this->assertStringContainsString('Tenant Fees List', $feesListBody);
+
+        [$dashboardStatus, ] = $this->curlGet('admin/admin/dashboard');
+        $this->assertSame(404, $dashboardStatus);
+
+        [$feesforwardIndexStatus, ] = $this->curlGet('admin/feesforward');
+        $this->assertSame(404, $feesforwardIndexStatus);
+    }
+
     private function curlPostPilotLogin(): array
     {
         $ch = curl_init(self::BASE_URL . 'pilotlogin/login');
