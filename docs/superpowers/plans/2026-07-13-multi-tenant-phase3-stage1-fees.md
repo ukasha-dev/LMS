@@ -959,6 +959,52 @@ git add tools/multitenant/MergeFeeData.php tests/tools/multitenant/MergeFeeDataT
 git commit -m "feat: extend MergeFeeData (Part B) — reconnect student_fees_master/discounts via StudentSessionIdResolver"
 ```
 
+**Post-Task-3 fix (found by the implementer's own self-review):** this
+plan's own Step 3 code (above) included
+
+```php
+        $studentResolver = new NaturalKeyIdResolver();
+        $studentMap = $studentResolver->resolve($this->source, $this->target, $this->tenantId, 'students', 'admission_no');
+```
+
+copy-pasted from Stage 5's `MergeExamData`, where a direct `student_id`
+FK genuinely needed this resolver. Neither `student_fees_master` nor
+`student_fees_discounts` has a `student_id` column at all — both only
+reference `student_session_id`, already fully resolved by
+`StudentSessionIdResolver` two lines below. `$studentMap` is computed
+and never read anywhere in the file: dead code, plus one wasted
+full-table `NaturalKeyIdResolver::resolve()` query (itself two SELECTs,
+source and target) on every real run for no purpose. Not a correctness
+bug — nothing depends on the unused value — but worth removing before
+Task 4 builds more code around this file.
+
+- [ ] **Fix Step 1: Remove the unused resolver call**
+
+In `tools/multitenant/MergeFeeData.php`, delete these two lines (and the
+blank line separating them from the next block) entirely:
+
+```php
+        $studentResolver = new NaturalKeyIdResolver();
+        $studentMap = $studentResolver->resolve($this->source, $this->target, $this->tenantId, 'students', 'admission_no');
+
+```
+
+Nothing else in the file changes — `$studentSessionResolver`/
+`$studentSessionMap` and everything after remain untouched.
+
+- [ ] **Fix Step 2: Run tests**
+
+Run: `"C:\xampp81\php\php.exe" vendor/bin/phpunit`
+Expected: `OK (52 tests, ...)` (unchanged — this removes only dead code,
+no behavior changes).
+
+- [ ] **Fix Step 3: Commit**
+
+```bash
+git add tools/multitenant/MergeFeeData.php
+git commit -m "fix: remove unused NaturalKeyIdResolver(students) call from MergeFeeData — student_fees_master/discounts only need StudentSessionIdResolver"
+```
+
 ---
 
 ### Task 4: `MergeFeeData` Part C — student_fees_deposite + student_applied_discounts (reconnect to this run's own remapped rows)
