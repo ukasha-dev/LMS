@@ -331,4 +331,9 @@ class Stuattendence_model extends MY_Model
 
         return $query->result();
     }
+
+    public function getTenantScopedAttendanceList($tenantId)
+    {
+        return $this->db->where('tenant_id', $tenantId)->get('student_attendences')->result_array();
+    }
 }

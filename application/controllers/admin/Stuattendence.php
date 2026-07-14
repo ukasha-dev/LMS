@@ -342,4 +342,17 @@ class Stuattendence extends Admin_Controller
         echo json_encode($array);
     }
 
+    public function tenantAttendanceList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $attendanceList = $this->stuattendence_model->getTenantScopedAttendanceList((int) $tenantId);
+        $this->load->view('admin/stuattendence/tenant_attendance_list', ['attendanceList' => $attendanceList]);
+    }
+
 }
