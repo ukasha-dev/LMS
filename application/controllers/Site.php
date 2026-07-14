@@ -205,8 +205,8 @@ class Site extends Public_Controller
                     // Read-only, pilot-tenant-only, best-effort proof that
                     // school_saas agrees with this real login. Never sets
                     // session data, never changes the redirect below, never
-                    // touches $this->db (uses the `true` second arg to get
-                    // an isolated connection object instead), and any
+                    // touches $this->db (builds its own separate PDO
+                    // connection instead), and any
                     // failure here is swallowed. branch_25 == al_hafeez_campus
                     // == tenant_id 25 (multi_branch.id 25, confirmed live) —
                     // this never runs for the other 5 schools.
