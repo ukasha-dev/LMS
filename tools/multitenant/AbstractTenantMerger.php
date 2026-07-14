@@ -54,4 +54,23 @@ abstract class AbstractTenantMerger
             throw $e;
         }
     }
+
+    protected function guardAgainstExistingData(string ...$tables): void
+    {
+        foreach ($tables as $table) {
+            $stmt = $this->target->prepare("SELECT COUNT(*) AS c FROM `{$table}` WHERE tenant_id = :tenant_id");
+            $stmt->execute([':tenant_id' => $this->tenantId]);
+            $count = (int) $stmt->fetch(PDO::FETCH_ASSOC)['c'];
+
+            if ($count > 0) {
+                throw new RuntimeException(
+                    "Refusing to run: tenant {$this->tenantId} already has {$count} row(s) in `{$table}`. "
+                    . 'This tool has no re-run/resume support -- re-running would duplicate data '
+                    . '(this is exactly the bug that duplicated tenant 25\'s attendance rows on 2026-07-10). '
+                    . "If this is intentional (e.g. recovering from a partial run), delete the tenant's "
+                    . "existing rows in `{$table}` first, or extend this tool with real upsert/resume logic."
+                );
+            }
+        }
+    }
 }

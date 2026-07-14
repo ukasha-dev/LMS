@@ -7,6 +7,8 @@ final class MergeSchoolData extends AbstractTenantMerger
 {
     public function run(): array
     {
+        $this->guardAgainstExistingData('students', 'users');
+
         $studentRemap = new IdRemapper($this->nextId('students'));
         $userRemap = new IdRemapper($this->nextId('users'));
 

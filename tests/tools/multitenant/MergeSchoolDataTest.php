@@ -119,4 +119,41 @@ final class MergeSchoolDataTest extends TestCase
         $userCount = (int) $this->target->query('SELECT COUNT(*) AS c FROM users')->fetch(PDO::FETCH_ASSOC)['c'];
         $this->assertSame(0, $userCount, 'Transaction should have rolled back, leaving users table empty');
     }
+
+    public function testRefusesToRunAgainIfTenantAlreadyHasStudentRows(): void
+    {
+        $this->target->exec("INSERT INTO students (id, parent_id, firstname, tenant_id) VALUES (1, 0, 'Existing', 25)");
+
+        $this->source->exec("INSERT INTO users (id, user_id, username) VALUES (1, 0, 'parent1')");
+        $this->source->exec("INSERT INTO students (id, parent_id, firstname) VALUES (1, 1, 'Bob')");
+
+        $merger = new MergeSchoolData($this->source, $this->target, 25);
+
+        $threw = false;
+        try {
+            $merger->run();
+        } catch (RuntimeException $e) {
+            $threw = true;
+            $this->assertStringContainsString('students', $e->getMessage());
+            $this->assertStringContainsString('25', $e->getMessage());
+        }
+
+        $this->assertTrue($threw, 'Expected run() to refuse when tenant 25 already has student rows');
+
+        $studentCount = (int) $this->target->query("SELECT COUNT(*) AS c FROM students WHERE tenant_id = 25")->fetch(PDO::FETCH_ASSOC)['c'];
+        $this->assertSame(1, $studentCount, 'Refusing to run must not insert any new rows -- only the pre-existing row should remain');
+    }
+
+    public function testGuardDoesNotFalselyBlockADifferentTenantWithNoExistingRows(): void
+    {
+        $this->target->exec("INSERT INTO students (id, parent_id, firstname, tenant_id) VALUES (1, 0, 'OtherTenant', 99)");
+
+        $this->source->exec("INSERT INTO users (id, user_id, username) VALUES (1, 0, 'parent1')");
+        $this->source->exec("INSERT INTO students (id, parent_id, firstname) VALUES (1, 1, 'Bob')");
+
+        $merger = new MergeSchoolData($this->source, $this->target, 25);
+        $result = $merger->run();
+
+        $this->assertSame(1, $result['students_migrated'], 'Tenant 25 has no existing rows -- the guard must not block it just because tenant 99 has data');
+    }
 }
