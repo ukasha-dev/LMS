@@ -1,0 +1,16 @@
+USE school_saas;
+
+CREATE TABLE grades (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    tenant_id INT NOT NULL,
+    exam_type VARCHAR(250) DEFAULT NULL,
+    name VARCHAR(100) DEFAULT NULL,
+    point FLOAT(10,1) DEFAULT NULL,
+    mark_from FLOAT(10,2) DEFAULT NULL,
+    mark_upto FLOAT(10,2) DEFAULT NULL,
+    description TEXT DEFAULT NULL,
+    is_active VARCHAR(255) DEFAULT 'no',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_grades_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+);

@@ -74,6 +74,7 @@ class Admin_Controller extends MY_Controller
                 'designation' => 'tenantdesignationlist',
                 'leavetypes' => 'tenantleavetypeslist',
                 'subject' => 'tenantsubjectlist',
+                'grade' => 'tenantgradelist',
             ];
             if (!isset($allowedTenantRoutes[$activeController]) || $allowedTenantRoutes[$activeController] !== $activeMethod) {
                 show_404();

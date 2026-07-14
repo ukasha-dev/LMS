@@ -101,4 +101,17 @@ class Grade extends Admin_Controller
         redirect('admin/grade/index');
     }
 
+    public function tenantGradeList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $gradeList = $this->grade_model->getTenantScopedGradeList((int) $tenantId);
+        $this->load->view('admin/grade/tenant_grade_list', ['gradeList' => $gradeList]);
+    }
+
 }

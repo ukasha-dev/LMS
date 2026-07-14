@@ -151,4 +151,9 @@ class Grade_model extends MY_Model
         }
     }
 
+    public function getTenantScopedGradeList($tenantId)
+    {
+        return $this->db->where('tenant_id', $tenantId)->get('grades')->result_array();
+    }
+
 }
