@@ -446,11 +446,14 @@ made.
    - **Stage 5 — Shadow-verify real Site.php login** — ✅ complete
      (2026-07-14, plan:
      `2026-07-14-multi-tenant-phase3-stage5-shadow-login-verify.md`;
-     commits `e0c00ae9`, `1ae18656`, `839e6786`). Unlike Stages 3 and 4,
+     commits `e0c00ae9`, `1ae18656`, `839e6786`, `58415c8a`). Unlike Stages 3 and 4,
      this stage does not add a new gated method or touch the allowlist at
      all — it wires a small, isolated, read-only credential check into the
-     one real production login path every one of the 6 schools shares,
-     `Site.php::login()`. Task 1 built `tools/multitenant/ShadowLoginVerifier.php`,
+     one real production login path every school shares,
+     `Site.php::login()`. (Note: `multi_branch` actually has 7
+     `is_verified=1` rows, ids 19-25; "6 schools" below excludes id 19,
+     "A Branch" / `new_db`, a test/placeholder branch, not a real school.)
+     Task 1 built `tools/multitenant/ShadowLoginVerifier.php`,
      a standalone PDO-based class (no CodeIgniter dependencies) that takes
      an email/password/tenant_id and an injected password-hash-matching
      callable, queries `school_saas.staff` directly, and returns
