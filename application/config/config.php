@@ -516,4 +516,4 @@ $config['rewrite_short_tags'] = FALSE;
 $config['routine_session'] = 16;
 $config['routine_update'] = 1529539200;
 $config['proxy_ips'] = '';
-$config['installed'] = false;
+$config['installed'] = true;
