@@ -524,6 +524,73 @@ made.
      school, every time. The only observable effect is a new log line on
      pilot-tenant logins.
 
+   - **Stage 6 — Fourth real controller retrofit (Stuattendence)** — ✅
+     complete (2026-07-14, plan:
+     `2026-07-14-multi-tenant-phase3-stage6-fourth-controller-retrofit.md`;
+     commits `4b51bd41` (allowlist entry), `5fbe4d5f` (gated method),
+     `faee9a56` (regression test), plus this roadmap-update commit). The
+     FOURTH stage to touch code in the LIVE admin panel's shared execution
+     path (after Phase 2 Stage 6's `Staff.php`, Phase 3 Stage 3's
+     `Feesforward.php`, and Phase 3 Stage 4's `Examgroup.php`), and — like
+     Stages 3 and 4 before it — a deliberately small one: no new database
+     migration was needed at all, since `student_attendences` (1124 real
+     rows for tenant 25) was already migrated by an earlier stage, and the
+     `sch_settings`/`languages`/`currencies` fixture tables
+     `MY_Controller`'s autoload chain needs were already put in place by
+     Phase 2 Stage 6's Post-Task-5 fix and reused unchanged by Stages 3-4.
+     This stage's only job was to prove the allowlist-gate mechanism
+     (`Admin_Controller`'s `admin_tenant_id` check in
+     `application/core/MY_Controller.php`, generalized from a single `if`
+     to a keyed array by Phase 3 Stage 3's own Task 1) generalizes to a
+     FOURTH real route, not just three. It did, exactly as Stage 4's final
+     review predicted: the allowlist gained one new entry (`'stuattendence'
+     => 'tenantattendancelist'`) alongside the three pre-existing entries
+     (`'staff' => 'tenantstafflist'`, `'feesforward' => 'tenantfeeslist'`,
+     `'examgroup' => 'tenantexamresultslist'`), with zero changes to the
+     gate's conditional logic, `Db_manager`'s connection-routing gate, or
+     any other shared file — another one-line array addition, no gate
+     rebuild. `Stuattendence.php`/`Stuattendence_model.php` gained one new
+     tenant-scoped method each (`tenantAttendanceList()` /
+     `getTenantScopedAttendanceList($tenantId)`, the same explicit
+     `WHERE tenant_id = ?` filter strategy locked in during Phase 2 Stage 6
+     and reused unchanged by Stages 3-4). This is the THIRD consecutive
+     stage to add "one allowlist entry and one gated method" with zero new
+     infrastructure needed — confirming the mechanism now scales cleanly
+     to four controllers at the same one-line-per-stage cost, not just
+     three. The allowlist gate, `Db_manager` connection gate, and settings
+     fixture tables have all been unchanged since Phase 2 Stage 6. No bugs
+     found during implementation or verification. Verified end to end with
+     a real `PilotLogin` authentication, in one script against a single
+     fixed cookie jar (the documented shell-variable-persistence pitfall
+     from earlier stages): the real `admin/staff/tenantStaffList` still
+     returns the real 18 tenant-25 staff rows, `admin/feesforward/tenantFeesList`
+     still returns the real 699 tenant-25 fee-deposit rows, and
+     `admin/examgroup/tenantExamResultsList` still returns the real 2785
+     tenant-25 exam-result rows (proving the fourth allowlist entry didn't
+     regress any of the three prior routes), the real
+     `admin/stuattendence/tenantAttendanceList` returns the real 1124
+     tenant-25 attendance rows, and `admin/admin/dashboard`, the real
+     un-gated `admin/staff` index, `admin/feesforward` index, `admin/examgroup`
+     index, a completely unrelated real controller (`admin/examresult`), the
+     real un-gated `admin/stuattendence` index, AND two real sibling methods
+     on the newly-allowlisted controller itself
+     (`admin/stuattendence/attendencereport`,
+     `admin/stuattendence/index`) all return `404` for that same
+     tenant-scoped session — proving the allowlist is specific to the exact
+     four gated methods, never opening up a whole controller (including the
+     one that was JUST allowlisted) or an unrelated one. One new
+     credentialed regression test added to
+     `tests/controllers/AdminControllerTenantGateTest.php` codifying all of
+     the above; full suite `OK (67 tests, 262 assertions)` (66 from Phase 3
+     Stage 5 + this stage's 1 new test, no regressions). `git diff` for
+     `Stuattendence.php`/`Stuattendence_model.php` confirms only additions —
+     the pre-existing `index`, `attendencereport`, `monthAttendance`,
+     `saveclasstime`, and `savestudentsetting` methods serving real,
+     un-gated schools today were left untouched. Pre-existing unrelated
+     uncommitted work in the working tree (noted at the start of Phase 3
+     Stage 3 and carried since) remains present and untouched by this
+     stage's commits, each of which staged only its own target files.
+
 4. **Phase 4 — API layer** (not yet planned)
    Apply the same treatment to `api/` (112 files) — separate branch-switch
    logic today, needs its own tenant-scoping pass.
