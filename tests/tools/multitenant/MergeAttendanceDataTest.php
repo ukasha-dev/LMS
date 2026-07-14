@@ -102,4 +102,37 @@ final class MergeAttendanceDataTest extends TestCase
         $count = (int) $this->target->query('SELECT COUNT(*) FROM student_attendences')->fetchColumn();
         $this->assertSame(0, $count);
     }
+
+    public function testRefusesToRunAgainIfTenantAlreadyHasAttendenceTypeRows(): void
+    {
+        $this->target->exec("INSERT INTO attendence_type (id, type, key_value, tenant_id) VALUES (1, 'Existing', 'E', 25)");
+
+        $this->source->exec("INSERT INTO students (id, admission_no) VALUES (101, 'ADM-001')");
+        $this->source->exec("INSERT INTO classes (id, class) VALUES (201, 'Class 1')");
+        $this->source->exec("INSERT INTO sections (id, section) VALUES (301, 'A')");
+        $this->source->exec('INSERT INTO student_session (id, student_id, class_id, section_id) VALUES (401, 101, 201, 301)');
+        $this->source->exec("INSERT INTO attendence_type (id, type, key_value) VALUES (1, 'Present', 'P')");
+        $this->source->exec("INSERT INTO student_attendences (student_session_id, date, attendence_type_id, remark) VALUES (401, '2026-01-15', 1, '')");
+
+        $this->target->exec("INSERT INTO students (id, admission_no, tenant_id) VALUES (2, 'ADM-001', 25)");
+        $this->target->exec("INSERT INTO classes (id, class, tenant_id) VALUES (3, 'Class 1', 25)");
+        $this->target->exec("INSERT INTO sections (id, section, tenant_id) VALUES (4, 'A', 25)");
+        $this->target->exec('INSERT INTO student_session (id, student_id, class_id, section_id, tenant_id) VALUES (5, 2, 3, 4, 25)');
+
+        $merger = new MergeAttendanceData($this->source, $this->target, 25);
+
+        $threw = false;
+        try {
+            $merger->run();
+        } catch (RuntimeException $e) {
+            $threw = true;
+            $this->assertStringContainsString('attendence_type', $e->getMessage());
+            $this->assertStringContainsString('25', $e->getMessage());
+        }
+
+        $this->assertTrue($threw, 'Expected run() to refuse when tenant 25 already has attendence_type rows');
+
+        $typeCount = (int) $this->target->query("SELECT COUNT(*) AS c FROM attendence_type WHERE tenant_id = 25")->fetch(PDO::FETCH_ASSOC)['c'];
+        $this->assertSame(1, $typeCount, 'Refusing to run must not insert any new rows -- only the pre-existing row should remain');
+    }
 }

@@ -93,4 +93,36 @@ final class MergeStudentSessionDataTest extends TestCase
         $count = (int) $this->target->query('SELECT COUNT(*) FROM student_session')->fetchColumn();
         $this->assertSame(0, $count);
     }
+
+    public function testRefusesToRunAgainIfTenantAlreadyHasStudentSessionRows(): void
+    {
+        $this->target->exec("INSERT INTO student_session (id, student_id, class_id, section_id, tenant_id) VALUES (1, 1, 2, 3, 25)");
+
+        $this->source->exec("INSERT INTO students (id, admission_no) VALUES (101, 'ADM-001')");
+        $this->source->exec("INSERT INTO classes (id, class) VALUES (201, 'Class 1')");
+        $this->source->exec("INSERT INTO sections (id, section) VALUES (301, 'A')");
+        $this->source->exec("INSERT INTO student_session (student_id, class_id, section_id, is_active) VALUES (101, 201, 301, 'yes')");
+        $this->source->exec('INSERT INTO class_sections (class_id, section_id) VALUES (201, 301)');
+
+        $this->target->exec("INSERT INTO students (id, admission_no, tenant_id) VALUES (1, 'ADM-001', 25)");
+        $this->target->exec("INSERT INTO classes (id, class, tenant_id) VALUES (2, 'Class 1', 25)");
+        $this->target->exec("INSERT INTO sections (id, section, tenant_id) VALUES (3, 'A', 25)");
+        $this->target->exec('INSERT INTO class_sections (class_id, section_id, tenant_id) VALUES (2, 3, 25)');
+
+        $merger = new MergeStudentSessionData($this->source, $this->target, 25);
+
+        $threw = false;
+        try {
+            $merger->run();
+        } catch (RuntimeException $e) {
+            $threw = true;
+            $this->assertStringContainsString('student_session', $e->getMessage());
+            $this->assertStringContainsString('25', $e->getMessage());
+        }
+
+        $this->assertTrue($threw, 'Expected run() to refuse when tenant 25 already has student_session rows');
+
+        $sessionCount = (int) $this->target->query("SELECT COUNT(*) AS c FROM student_session WHERE tenant_id = 25")->fetch(PDO::FETCH_ASSOC)['c'];
+        $this->assertSame(1, $sessionCount, 'Refusing to run must not insert any new rows -- only the pre-existing row should remain');
+    }
 }

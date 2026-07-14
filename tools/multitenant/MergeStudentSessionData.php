@@ -8,6 +8,8 @@ final class MergeStudentSessionData extends AbstractTenantMerger
 {
     public function run(): array
     {
+        $this->guardAgainstExistingData('student_session');
+
         $studentResolver = new NaturalKeyIdResolver();
         $studentMap = $studentResolver->resolve($this->source, $this->target, $this->tenantId, 'students', 'admission_no');
 

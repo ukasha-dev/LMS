@@ -92,4 +92,29 @@ final class MergeClassDataTest extends TestCase
         $this->assertGreaterThan(500, (int) $newClass['id']);
         $this->assertGreaterThan(700, (int) $newSection['id']);
     }
+
+    public function testRefusesToRunAgainIfTenantAlreadyHasClassesRows(): void
+    {
+        $this->target->exec("INSERT INTO classes (id, class, tenant_id) VALUES (1, 'Existing', 25)");
+
+        $this->source->exec("INSERT INTO classes (id, class) VALUES (1, 'Class 1')");
+        $this->source->exec("INSERT INTO sections (id, section) VALUES (1, 'A')");
+        $this->source->exec('INSERT INTO class_sections (id, class_id, section_id) VALUES (1, 1, 1)');
+
+        $merger = new MergeClassData($this->source, $this->target, 25);
+
+        $threw = false;
+        try {
+            $merger->run();
+        } catch (RuntimeException $e) {
+            $threw = true;
+            $this->assertStringContainsString('classes', $e->getMessage());
+            $this->assertStringContainsString('25', $e->getMessage());
+        }
+
+        $this->assertTrue($threw, 'Expected run() to refuse when tenant 25 already has classes rows');
+
+        $classCount = (int) $this->target->query("SELECT COUNT(*) AS c FROM classes WHERE tenant_id = 25")->fetch(PDO::FETCH_ASSOC)['c'];
+        $this->assertSame(1, $classCount, 'Refusing to run must not insert any new rows -- only the pre-existing row should remain');
+    }
 }

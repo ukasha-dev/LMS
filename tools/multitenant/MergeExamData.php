@@ -9,6 +9,8 @@ final class MergeExamData extends AbstractTenantMerger
 {
     public function run(): array
     {
+        $this->guardAgainstExistingData('sessions', 'subjects', 'exam_groups', 'exam_group_class_batch_exams', 'exam_group_class_batch_exam_subjects', 'exam_group_class_batch_exam_students', 'exam_group_exam_results');
+
         $sessionRemap = new IdRemapper($this->nextId('sessions'));
         $sessions = $this->fetchAll('SELECT id, session, is_active, created_at, updated_at FROM sessions');
         foreach ($sessions as $row) {

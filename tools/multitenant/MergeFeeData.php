@@ -8,6 +8,8 @@ final class MergeFeeData extends AbstractTenantMerger
 {
     public function run(): array
     {
+        $this->guardAgainstExistingData('feetype', 'fee_groups', 'fees_discounts', 'fee_session_groups', 'fee_groups_feetype', 'fees_reminder', 'student_fees_master', 'student_fees_deposite', 'student_fees_discounts', 'student_applied_discounts');
+
         $feetypes = $this->fetchAll(
             'SELECT id, is_system, type, code, is_active, description, session_id, nature, created_at, updated_at FROM feetype'
         );

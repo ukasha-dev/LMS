@@ -7,6 +7,8 @@ final class MergeClassData extends AbstractTenantMerger
 {
     public function run(): array
     {
+        $this->guardAgainstExistingData('classes', 'sections', 'class_sections');
+
         $classRemap = new IdRemapper($this->nextId('classes'));
         $sectionRemap = new IdRemapper($this->nextId('sections'));
 

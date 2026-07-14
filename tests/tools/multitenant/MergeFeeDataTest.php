@@ -311,4 +311,38 @@ final class MergeFeeDataTest extends TestCase
         $this->assertSame(42, (int) $applied['invoice_id']);
         $this->assertSame(25, (int) $applied['tenant_id']);
     }
+
+    public function testRefusesToRunAgainIfTenantAlreadyHasFeetypeRows(): void
+    {
+        $this->target->exec("INSERT INTO feetype (id, type, code, nature, tenant_id) VALUES (1, 'Existing', 'EXI', 'monthly', 25)");
+
+        $this->source->exec("INSERT INTO sessions (id, session) VALUES (20, '2024-25')");
+        $this->target->exec("INSERT INTO sessions (id, session, tenant_id) VALUES (2, '2024-25', 25)");
+
+        $this->source->exec("INSERT INTO feetype (id, type, code, nature, session_id) VALUES (5, 'Tuition Fee', 'TUI', 'monthly', 20)");
+        $this->source->exec("INSERT INTO fee_groups (id, name, nature) VALUES (8, 'General Fee', 'monthly')");
+        $this->source->exec("INSERT INTO fees_discounts (id, session_id, name, code, type, percentage) VALUES (12, 20, 'Sibling Discount', 'SIB', 'percentage', 10.00)");
+        $this->source->exec("INSERT INTO fee_session_groups (id, fee_groups_id, session_id) VALUES (30, 8, 20)");
+        $this->source->exec(
+            "INSERT INTO fee_groups_feetype (id, fee_session_group_id, fee_groups_id, feetype_id, session_id, amount)"
+            . " VALUES (100, 30, 8, 5, 20, 1500.00)"
+        );
+        $this->source->exec("INSERT INTO fees_reminder (id, reminder_type, day) VALUES (1, 'due', 3)");
+
+        $merger = new MergeFeeData($this->source, $this->target, 25);
+
+        $threw = false;
+        try {
+            $merger->run();
+        } catch (RuntimeException $e) {
+            $threw = true;
+            $this->assertStringContainsString('feetype', $e->getMessage());
+            $this->assertStringContainsString('25', $e->getMessage());
+        }
+
+        $this->assertTrue($threw, 'Expected run() to refuse when tenant 25 already has feetype rows');
+
+        $feetypeCount = (int) $this->target->query("SELECT COUNT(*) AS c FROM feetype WHERE tenant_id = 25")->fetch(PDO::FETCH_ASSOC)['c'];
+        $this->assertSame(1, $feetypeCount, 'Refusing to run must not insert any new rows -- only the pre-existing row should remain');
+    }
 }

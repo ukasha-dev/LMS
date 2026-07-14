@@ -8,6 +8,8 @@ final class MergeAttendanceData extends AbstractTenantMerger
 {
     public function run(): array
     {
+        $this->guardAgainstExistingData('attendence_type', 'student_attendences');
+
         $typeRemap = new IdRemapper($this->nextId('attendence_type'));
 
         $types = $this->fetchAll(

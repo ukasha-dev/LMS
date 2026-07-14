@@ -104,4 +104,34 @@ final class MergeHrDataTest extends TestCase
         $this->assertSame(1, $result['staff_leave_details_source_total']);
         $this->assertSame(1, $result['staff_leave_details_skipped']);
     }
+
+    public function testRefusesToRunAgainIfTenantAlreadyHasDepartmentRows(): void
+    {
+        $this->target->exec("INSERT INTO department (id, department_name, is_active, tenant_id) VALUES (1, 'Existing', '1', 25)");
+
+        $this->source->exec("INSERT INTO department (id, department_name, is_active) VALUES (3, 'Academics', '1')");
+        $this->source->exec("INSERT INTO staff_designation (id, designation, is_active) VALUES (7, 'Teacher', '1')");
+        $this->source->exec("INSERT INTO leave_types (id, type, is_active) VALUES (2, 'Sick Leave', '1')");
+        $this->source->exec("INSERT INTO staff (id, email) VALUES (100, 'teacher@example.com')");
+        $this->target->exec("INSERT INTO staff (id, email, tenant_id) VALUES (5, 'teacher@example.com', 25)");
+        $this->source->exec(
+            "INSERT INTO staff_leave_details (id, staff_id, leave_type_id, alloted_leave) VALUES (500, 100, 2, '10')"
+        );
+
+        $merger = new MergeHrData($this->source, $this->target, 25);
+
+        $threw = false;
+        try {
+            $merger->run();
+        } catch (RuntimeException $e) {
+            $threw = true;
+            $this->assertStringContainsString('department', $e->getMessage());
+            $this->assertStringContainsString('25', $e->getMessage());
+        }
+
+        $this->assertTrue($threw, 'Expected run() to refuse when tenant 25 already has department rows');
+
+        $departmentCount = (int) $this->target->query("SELECT COUNT(*) AS c FROM department WHERE tenant_id = 25")->fetch(PDO::FETCH_ASSOC)['c'];
+        $this->assertSame(1, $departmentCount, 'Refusing to run must not insert any new rows -- only the pre-existing row should remain');
+    }
 }

@@ -201,12 +201,21 @@ final class MergeExamDataTest extends TestCase
         $this->target->exec("INSERT INTO sections (id, section, tenant_id) VALUES (3, 'A', 25)");
         $this->target->exec("INSERT INTO student_session (id, student_id, class_id, section_id, tenant_id, created_at) VALUES (4, 1, 2, 3, 25, '2025-01-01 00:00:00')");
         // Pre-existing, unrelated target rows occupying id 900 on both the
-        // parent link table and the results table itself.
+        // parent link table and the results table itself. Belongs to a
+        // DIFFERENT tenant (99, not 25) deliberately: nextId() computes
+        // MAX(id)+1 table-wide, not scoped by tenant, so the id-collision
+        // this test guards against is exercised regardless of which tenant
+        // owns the colliding row. Using tenant 25 here would be an
+        // unrealistic fixture now that the re-run guard exists -- tenant
+        // 25's own exam_group_exam_results/exam_group_class_batch_exam_students
+        // rows are exclusively populated by this tool's own run, so there is
+        // no legitimate way for tenant 25 to have pre-existing rows there
+        // before this tool's first run.
         $this->target->exec(
-            "INSERT INTO exam_group_class_batch_exam_students (id, exam_group_class_batch_exam_id, student_id, student_session_id, tenant_id) VALUES (900, 1, 1, 4, 25)"
+            "INSERT INTO exam_group_class_batch_exam_students (id, exam_group_class_batch_exam_id, student_id, student_session_id, tenant_id) VALUES (900, 1, 1, 4, 99)"
         );
         $this->target->exec(
-            "INSERT INTO exam_group_exam_results (id, exam_group_class_batch_exam_student_id, get_marks, tenant_id) VALUES (900, 900, 10, 25)"
+            "INSERT INTO exam_group_exam_results (id, exam_group_class_batch_exam_student_id, get_marks, tenant_id) VALUES (900, 900, 10, 99)"
         );
 
         $merger = new MergeExamData($this->source, $this->target, 25);
@@ -249,5 +258,37 @@ final class MergeExamDataTest extends TestCase
         $this->assertSame(0, $result['exam_group_exam_results_migrated']);
         $this->assertSame(1, $result['exam_group_exam_results_source_total']);
         $this->assertSame(1, $result['exam_group_exam_results_skipped']);
+    }
+
+    public function testRefusesToRunAgainIfTenantAlreadyHasSessionRows(): void
+    {
+        $this->target->exec("INSERT INTO sessions (id, session, tenant_id) VALUES (1, 'Existing', 25)");
+
+        $this->source->exec("INSERT INTO sessions (id, session) VALUES (20, '2024-25')");
+        $this->source->exec("INSERT INTO subjects (id, name, code, type) VALUES (5, 'Mathematics', '', 'theory')");
+        $this->source->exec("INSERT INTO exam_groups (id, name, exam_type) VALUES (8, 'Annual Terminal Examination', 'school_grade_system')");
+        $this->source->exec(
+            "INSERT INTO exam_group_class_batch_exams (id, exam, session_id, exam_group_id) VALUES (30, '9th Annual', 20, 8)"
+        );
+        $this->source->exec(
+            "INSERT INTO exam_group_class_batch_exam_subjects (id, exam_group_class_batch_exams_id, subject_id, date_from, time_from, duration)"
+            . " VALUES (100, 30, 5, '2026-03-01', '09:00:00', '2 hours')"
+        );
+
+        $merger = new MergeExamData($this->source, $this->target, 25);
+
+        $threw = false;
+        try {
+            $merger->run();
+        } catch (RuntimeException $e) {
+            $threw = true;
+            $this->assertStringContainsString('sessions', $e->getMessage());
+            $this->assertStringContainsString('25', $e->getMessage());
+        }
+
+        $this->assertTrue($threw, 'Expected run() to refuse when tenant 25 already has sessions rows');
+
+        $sessionCount = (int) $this->target->query("SELECT COUNT(*) AS c FROM sessions WHERE tenant_id = 25")->fetch(PDO::FETCH_ASSOC)['c'];
+        $this->assertSame(1, $sessionCount, 'Refusing to run must not insert any new rows -- only the pre-existing row should remain');
     }
 }

@@ -8,6 +8,8 @@ final class MergeHrData extends AbstractTenantMerger
 {
     public function run(): array
     {
+        $this->guardAgainstExistingData('department', 'staff_designation', 'leave_types', 'staff_leave_details');
+
         $departmentRemap = new IdRemapper($this->nextId('department'));
         $departments = $this->fetchAll('SELECT id, department_name, is_active, created_at, updated_at FROM department');
         foreach ($departments as $row) {

@@ -101,4 +101,29 @@ final class MergeStaffDataTest extends TestCase
         $this->assertGreaterThan(500, (int) $newStaff['id']);
         $this->assertGreaterThan(700, (int) $newRole['id']);
     }
+
+    public function testRefusesToRunAgainIfTenantAlreadyHasStaffRows(): void
+    {
+        $this->target->exec("INSERT INTO staff (id, employee_id, name, email, password, tenant_id) VALUES (1, 'EMP-EXIST', 'Existing', 'existing@example.com', 'hash', 25)");
+
+        $this->source->exec("INSERT INTO staff (id, employee_id, name, email, password) VALUES (1, 'EMP-1', 'Alice', 'alice@example.com', 'hash1')");
+        $this->source->exec("INSERT INTO roles (id, name) VALUES (1, 'Coordinator')");
+        $this->source->exec('INSERT INTO staff_roles (id, staff_id, role_id) VALUES (1, 1, 1)');
+
+        $merger = new MergeStaffData($this->source, $this->target, 25);
+
+        $threw = false;
+        try {
+            $merger->run();
+        } catch (RuntimeException $e) {
+            $threw = true;
+            $this->assertStringContainsString('staff', $e->getMessage());
+            $this->assertStringContainsString('25', $e->getMessage());
+        }
+
+        $this->assertTrue($threw, 'Expected run() to refuse when tenant 25 already has staff rows');
+
+        $staffCount = (int) $this->target->query("SELECT COUNT(*) AS c FROM staff WHERE tenant_id = 25")->fetch(PDO::FETCH_ASSOC)['c'];
+        $this->assertSame(1, $staffCount, 'Refusing to run must not insert any new rows -- only the pre-existing row should remain');
+    }
 }

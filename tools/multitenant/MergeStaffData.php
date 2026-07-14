@@ -7,6 +7,8 @@ final class MergeStaffData extends AbstractTenantMerger
 {
     public function run(): array
     {
+        $this->guardAgainstExistingData('staff', 'roles', 'staff_roles');
+
         $staffRemap = new IdRemapper($this->nextId('staff'));
         $roleRemap = new IdRemapper($this->nextId('roles'));
 
