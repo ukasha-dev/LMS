@@ -66,6 +66,7 @@ class Admin_Controller extends MY_Controller
                 'feesforward' => 'tenantfeeslist',
                 'examgroup' => 'tenantexamresultslist',
                 'stuattendence' => 'tenantattendancelist',
+                'leaverequest' => 'tenantleaverequestlist',
             ];
             if (!isset($allowedTenantRoutes[$activeController]) || $allowedTenantRoutes[$activeController] !== $activeMethod) {
                 show_404();
