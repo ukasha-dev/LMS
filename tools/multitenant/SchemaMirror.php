@@ -18,7 +18,7 @@ final class SchemaMirror
         $columns = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         $lines = [];
-        $primaryKey = null;
+        $primaryKeyColumns = [];
 
         foreach ($columns as $col) {
             if ($col['data_type'] === 'enum') {
@@ -55,14 +55,25 @@ final class SchemaMirror
             $lines[] = $line;
 
             if ($col['column_key'] === 'PRI') {
-                $primaryKey = $col['column_name'];
+                $primaryKeyColumns[] = $col['column_name'];
             }
+        }
+
+        if (count($primaryKeyColumns) > 1) {
+            throw new RuntimeException(
+                "SchemaMirror does not support composite PRIMARY KEYs (found `{$table}` with PRI columns: "
+                . implode(', ', $primaryKeyColumns) . ') -- this was never encountered during this '
+                . "tool's development (all real tables have a single-column or no primary key); "
+                . 'extend it deliberately before trusting it here, since MySQL reports column_key=PRI '
+                . 'on every column of a multi-column key and a naive single-column PRIMARY KEY clause '
+                . 'would silently create the wrong uniqueness constraint.'
+            );
         }
 
         $lines[] = '`tenant_id` INT NOT NULL';
 
-        if ($primaryKey !== null) {
-            $lines[] = "PRIMARY KEY (`{$primaryKey}`)";
+        if (count($primaryKeyColumns) === 1) {
+            $lines[] = "PRIMARY KEY (`{$primaryKeyColumns[0]}`)";
         }
 
         return "CREATE TABLE `{$table}` (\n    " . implode(",\n    ", $lines) . "\n)";

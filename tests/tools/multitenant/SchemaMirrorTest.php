@@ -89,4 +89,26 @@ final class SchemaMirrorTest extends TestCase
         $this->assertSame(25, (int) $row['tenant_id']);
         $this->assertSame('active', $row['status']);
     }
+
+    public function testThrowsOnCompositePrimaryKeyInsteadOfSilentlyEmittingAWrongSingleColumnKey(): void
+    {
+        // MySQL/MariaDB reports column_key='PRI' on EVERY column of a
+        // multi-column primary key -- a naive "last PRI column wins"
+        // implementation would silently create a table with a wrong,
+        // narrower uniqueness constraint instead of failing loudly.
+        $this->source->exec(
+            'CREATE TABLE class_teachers ('
+            . 'student_id INT NOT NULL, '
+            . 'class_id INT NOT NULL, '
+            . 'PRIMARY KEY (student_id, class_id)'
+            . ')'
+        );
+
+        $mirror = new SchemaMirror($this->source);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessageMatches('/composite PRIMARY KEY/');
+
+        $mirror->generateCreateTableSql('schema_mirror_test_source', 'class_teachers');
+    }
 }
