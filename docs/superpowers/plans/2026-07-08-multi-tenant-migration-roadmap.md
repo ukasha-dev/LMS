@@ -692,6 +692,131 @@ made.
      bare-URL manual check and does not weaken the security property under
      test.
 
+   - **Stage 8 — Pilot proof-harness security hardening** — ✅ complete
+     (2026-07-14, plan: `p3s8-task-3-brief.md` and its Task 1/2 companions;
+     commits `42812b52` (environment gate), `0d8d978a` (session-leak fix +
+     backdoor removal), `db977eae` (regression test), plus this
+     roadmap-update commit). Unlike Stages 3-7, this stage touches zero
+     code in the live admin panel's shared execution path
+     (`application/core/MY_Controller.php`, `application/libraries/Db_manager.php`
+     are untouched) — it closes out the `Pilot*` proof-harness debt items
+     flagged in the "Non-negotiables" section above rather than adding a
+     sixth real-controller retrofit.
+
+     Two originally-logged debt items are addressed. First, the
+     "Non-negotiables" section's original wording: "All `Pilot*`
+     controllers (`PilotStudents`, `PilotLogin`, `PilotClasses`, ...) are
+     an unauthenticated proof harness — anyone can call
+     `login_as/<any-id>` and select any tenant with data. They must be
+     removed or gated behind a real auth check before Phase 5's cutover."
+     Second, the same section's note that "this credential must be
+     rotated or the test restructured to avoid a committed working login
+     before any non-local deployment, at the same time the broader
+     `Pilot*` removal/gating happens" (referring to the
+     `rabiachauhan923@gmail.com` / `TestVerify123!` tenant-25 test
+     credential committed in `tests/controllers/AdminControllerTenantGateTest.php`
+     since Stage 6) — this stage's environment gate is the "broader
+     removal/gating" event that note was waiting on; the credential
+     itself was left in place (still local-dev-only, still low-risk per
+     Stage 6's review) since the gate now prevents it from being usable
+     outside `ENVIRONMENT === 'development'` at all.
+
+     While closing these, Task 2 found a second, more severe bug than the
+     originally-logged `login_as` issue alone: `PilotLogin::login()` set
+     `pilot_tenant_id` in session *before* validating credentials
+     (`$this->session->set_userdata('pilot_tenant_id', $tenantId);` ran
+     immediately after reading the POSTed `tenant_id`, ahead of the
+     staff-row lookup, password check, and active-flag check), and none
+     of the three failure branches (`count($staffRows) !== 1`, bad
+     password, `is_active !== 1`) unset it before returning their
+     "Invalid email or password." / "Account disabled." message. The
+     practical effect: *any* failed login attempt against
+     `pilotlogin/login` — regardless of whether the credentials were
+     merely wrong or complete nonsense — still left a fully usable
+     `pilot_tenant_id` in the requester's session. Since the login form
+     itself hardcodes `<input type="hidden" name="tenant_id" value="25">`
+     in its own HTML (visible to anyone who loads `pilotlogin/login`
+     unauthenticated), this meant simply POSTing garbage credentials to
+     that endpoint was enough to leave a session that could then reach
+     any of the other 7 real, tenant-scoped `Pilot*` controllers
+     (`PilotStudents`, `PilotClasses`, `PilotAttendance`, `PilotExam`,
+     `PilotFees`, `PilotHr`, `PilotStudentSessions`) and read/write their
+     tenant-25 data — worse than the already-logged `login_as` backdoor,
+     since it required no working knowledge of that specific method name
+     and looked, from the outside, like a normal failed-login response.
+     Fixed by adding `$this->session->unset_userdata('pilot_tenant_id');`
+     to all three failure branches (`application/controllers/PilotLogin.php`,
+     commit `0d8d978a`) so a failed attempt leaves no session state
+     capable of reaching `Tenant_Model::currentTenantId()` successfully;
+     confirmed live by `PilotSecurityTest::testFailedPilotLoginDoesNotLeavePilotTenantIdUsable`,
+     which posts bogus credentials, then immediately requests
+     `pilotstudents/index` and asserts the real `<h1>Pilot Students
+     (tenant_id = ...)</h1>` heading is absent (it throws instead, since
+     `Tenant_Model::currentTenantId()` — `application/core/Tenant_Model.php`
+     — raises `RuntimeException` when `pilot_tenant_id` is empty). The
+     same commit also deleted `PilotStudents::login_as($tenantId)`
+     outright — a six-line unauthenticated method that set
+     `pilot_tenant_id` from a raw URL segment with no credential check at
+     all — closing the originally-logged issue directly rather than
+     relying on the environment gate alone to contain it.
+
+     The systemic fix, from Task 1, is `PilotAccessGate::isAllowed()`
+     (`tools/multitenant/PilotAccessGate.php`) — a one-line
+     `$environment === 'development'` check — wired into a new
+     `Pilot_Controller` base class (`application/core/Pilot_Controller.php`)
+     whose constructor calls `show_404()` when the gate rejects, and
+     confirmed all 8 `Pilot*` controllers (`PilotClasses`,
+     `PilotAttendance`, `PilotExam`, `PilotFees`, `PilotHr`,
+     `PilotStudentSessions`, `PilotLogin`, `PilotStudents`) now `extends
+     Pilot_Controller` rather than `CI_Controller` directly. `ENVIRONMENT`
+     is the real CI3 constant defined in `index.php` (`define('ENVIRONMENT',
+     'development');`), not a typo'd or shadowed variable — so today,
+     locally, the gate is a no-op (the whole harness still works exactly
+     as before for local verification), but it will `show_404()` the
+     entire `Pilot*` surface the moment `ENVIRONMENT` is anything other
+     than `'development'`, which is exactly the "removed or gated" bar
+     the Non-negotiables section set.
+
+     `PilotSecurityTest.php` (3 new tests) covers all three properties:
+     (1) a failed login doesn't leave usable tenant data reachable
+     (above), (2) `pilotstudents/login_as/25` no longer resolves to a
+     200 (proving the backdoor method is gone, not just inaccessible),
+     (3) the legitimate credentialed path (`rabiachauhan923@gmail.com` /
+     `TestVerify123!`, tenant 25) still reaches the real 312-row
+     tenant-25 student list via `pilotstudents/index`'s real `<h1>Pilot
+     Students (tenant_id = 25)</h1>` heading, proving the fix didn't
+     break the harness's actual purpose. Full suite: `OK (75 tests, 285
+     assertions)` (72 from Phase 3 Stage 7 + Task 1's
+     `PilotAccessGateTest` + this stage's 3 new tests, no regressions).
+     `git diff` for `application/core/MY_Controller.php` and
+     `application/libraries/Db_manager.php` is empty — this stage is
+     completely isolated from the 5 already-retrofitted real controllers
+     (staff/feesforward/examgroup/stuattendence/leaverequest) and the
+     `admin_tenant_id`/allowlist-gate mechanism. Pre-existing unrelated
+     uncommitted work in the working tree (noted at the start of Phase 3
+     Stage 3 and carried since) remains present and untouched by this
+     stage's commits, each of which staged only its own target files.
+
+     **Honest framing, not full closure:** this stage closes the
+     *documented* debt items (the `Pilot*` harness is now gated, and the
+     credential-rotation note tied to that gating event is resolved) —
+     it does not eliminate the underlying `Pilot*` controllers, which
+     remain an unauthenticated-by-design proof harness, still not
+     intended for any real deployment, still carrying the same
+     `tenant_id`-in-hidden-form-field pattern and the same lack of any
+     real authentication scheme beyond "check a staff password against
+     `school_saas_pilot`." The roadmap's Phase 5 guidance ("must be
+     removed or gated behind a real auth check before Phase 5's
+     cutover") is now satisfied via the environment gate, not by
+     removing the harness outright — an explicit choice to keep the
+     harness available for continued local verification work in Phases
+     3-4 rather than deleting 8 controllers this stage still finds
+     useful. That decision — gate vs. delete — should be revisited if
+     and when Phase 5 cutover planning actually begins, at which point
+     the harness's ongoing value (if any) should be weighed against the
+     residual risk of shipping 8 controllers whose entire design assumes
+     `ENVIRONMENT !== 'production'` is enforced correctly forever.
+
 4. **Phase 4 — API layer** (not yet planned)
    Apply the same treatment to `api/` (112 files) — separate branch-switch
    logic today, needs its own tenant-scoping pass.
