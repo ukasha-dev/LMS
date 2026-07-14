@@ -156,4 +156,9 @@ $my_subjects[]=$value;
         }
     }
 
+    public function getTenantScopedSubjectList($tenantId)
+    {
+        return $this->db->where('tenant_id', $tenantId)->get('subjects')->result_array();
+    }
+
 }

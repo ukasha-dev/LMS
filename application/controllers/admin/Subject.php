@@ -128,4 +128,17 @@ class Subject extends Admin_Controller
         echo json_encode($data);
     }
 
+    public function tenantSubjectList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $subjectList = $this->subject_model->getTenantScopedSubjectList((int) $tenantId);
+        $this->load->view('admin/subject/tenant_subject_list', ['subjectList' => $subjectList]);
+    }
+
 }
