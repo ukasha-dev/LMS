@@ -377,4 +377,17 @@ class Leaverequest extends Admin_Controller
 
     }
 
+    public function tenantLeaveRequestList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $leaveRequestList = $this->leaverequest_model->getTenantScopedLeaveList((int) $tenantId);
+        $this->load->view('admin/leaverequest/tenant_leave_request_list', ['leaveRequestList' => $leaveRequestList]);
+    }
+
 }

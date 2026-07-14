@@ -205,4 +205,9 @@ class Leaverequest_model extends MY_model
         return $result->row_array();
     }
 
+    public function getTenantScopedLeaveList($tenantId)
+    {
+        return $this->db->where('tenant_id', $tenantId)->get('staff_leave_details')->result_array();
+    }
+
 }
