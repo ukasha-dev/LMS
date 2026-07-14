@@ -988,19 +988,83 @@ made.
   `student_session_id`, and the intra-stage exam-table links) references
   `<table>(id)` alone. Worth a composite FK before Phase 5 migrates
   additional schools.
-- **Merge tools have no re-run/idempotency guard** (discovered 2026-07-10
+  **Scope correction (Phase 3 Stage 10 research, 2026-07-14):** this
+  item's original survey undercounted the true scope — it is not
+  limited to 3 files / 11 tables. A full re-read of every file in
+  `sql/multitenant/` (all 9: `001_create_school_saas.sql` through
+  `009_add_hr_tables.sql`), cross-checked live against
+  `information_schema.KEY_COLUMN_USAGE` for the actual `school_saas`
+  database, found 69 total FK constraints across those 9 files, of
+  which 33 are `tenant_id → tenants(id)` FKs (fine — `tenants` has no
+  tenant scoping of its own, so those aren't part of this debt) and
+  **36 are non-composite intra-schema sibling FKs spread across all 9
+  files**, not just 003/005/006 — e.g. `fk_staffroles_staff` /
+  `fk_staffroles_role` (002), `fk_classsections_class` /
+  `fk_classsections_section` (003), `fk_studentsession_student` /
+  `_class` / `_section` (004), `fk_studentattendences_type` /
+  `_session` (005), nine such FKs across 006's exam tables, sixteen
+  across 008's fee tables, and `fk_sld_staff` / `fk_sld_leavetype`
+  (009). This item remains open and unresolved — only its documented
+  scope is corrected here for whoever picks it up next. Note: this
+  stage's planning brief anticipated a "63 FKs across 9 files" figure;
+  this stage's direct SQL-file grep and live-schema audit consistently
+  produced 69 total / 36 in-scope instead, and could not reproduce 63
+  by any counting method tried (total FKs, non-tenant FKs, or distinct
+  tables). The "9 files" part of the brief's figure checks out exactly;
+  the "63" count does not — flagging this discrepancy rather than
+  transcribing an unverified number.
+- **Merge tools have no re-run/idempotency guard** — **RESOLVED in
+  Phase 3 Stage 10 (2026-07-14).** (Originally discovered 2026-07-10
   during Stage 4's final-review fix-up, when a manual verification re-run
   of `MergeAttendanceData.php al_hafeez_campus 25` — expected to error
   against already-migrated data — instead silently duplicated all of
   tenant 25's attendance rows, 1124→2248 and 6→12, with no error and no
   count-mismatch signal; caught immediately via row counts and corrected
   by deleting exactly the duplicate rows in a transaction, verified via
-  dangling-reference and per-tenant-count checks afterward). None of
-  `MergeSchoolData`, `MergeStaffData`, `MergeClassData`,
-  `MergeStudentSessionData`, or `MergeAttendanceData` check whether the
-  target tenant already has rows before inserting more. Harmless so far
-  because every real run to date has been against a clean tenant, but
-  Phase 5 will re-run these same tools repeatedly (once per remaining
-  school, likely with retries/resumes) — worth adding an explicit
-  "tenant already has data in table X, refusing to re-run" guard to
-  `AbstractTenantMerger` before Phase 5 starts.
+  dangling-reference and per-tenant-count checks afterward.) At the time
+  this was discovered, none of `MergeSchoolData`, `MergeStaffData`,
+  `MergeClassData`, `MergeStudentSessionData`, or `MergeAttendanceData`
+  (5 tools) checked whether the target tenant already had rows before
+  inserting more; the debt note below has been corrected — the full set
+  is 8 tools, not 5 (`MergeSchoolData`, `MergeStaffData`,
+  `MergeClassData`, `MergeStudentSessionData`, `MergeAttendanceData`,
+  `MergeExamData`, `MergeFeeData`, `MergeHrData`), and all 8 were
+  affected equally.
+
+  **Fix:** a new `AbstractTenantMerger::guardAgainstExistingData(string
+  ...$tables): void` method (added in Stage 10 Task 1) runs a bound
+  `SELECT COUNT(*) FROM `{table}` WHERE tenant_id = :tenant_id` for each
+  named table and throws a `RuntimeException` — message includes
+  "Refusing to run" and the offending table/row-count — if any of them
+  already has rows for that tenant. Every one of the 8 concrete
+  `Merge*Data::run()` methods (Stage 10 Tasks 1–2) calls it as the
+  literal first statement, before any `fetchAll`, `nextId`, or remapper
+  construction, listing every table that tool populates. Verified by 9
+  new PHPUnit tests (2 for `MergeSchoolData` in Task 1, 1 each for the
+  remaining 7 tools in Task 2) plus the full suite (85/85 passing).
+
+  **Real-data proof (Stage 10 Task 3, 2026-07-14), not just synthetic
+  fixtures:** with MySQL running against the live `school_saas`
+  database, two of the 8 tools were actually re-run from the CLI
+  against the real, already-migrated pilot tenant 25
+  (`al_hafeez_campus`) — the same tenant and the same class of command
+  that caused the original 2026-07-10 incident:
+  - `php tools/multitenant/MergeAttendanceData.php al_hafeez_campus 25`
+    — failed immediately with `RuntimeException: Refusing to run:
+    tenant 25 already has 6 row(s) in `attendence_type`...`, exit code
+    255, no success message. Tenant 25's row counts across `students`,
+    `attendence_type`, `student_attendences`, `classes`, `sessions`,
+    and `department` were confirmed byte-identical before and after
+    (312 / 6 / 1124 / 7 / 15 / 5 both times).
+  - `php tools/multitenant/MergeHrData.php al_hafeez_campus 25` —
+    failed immediately with `RuntimeException: Refusing to run: tenant
+    25 already has 5 row(s) in `department`...`, exit code 255, no
+    success message. Tenant 25's row counts across `department`,
+    `staff_designation`, `leave_types`, `staff_leave_details`,
+    `students`, `classes`, and `sessions` were confirmed
+    byte-identical before and after (5 / 12 / 2 / 32 / 312 / 7 / 15
+    both times).
+
+  Both attempts failed closed with zero data change against real
+  production-equivalent data, not just PHPUnit fixtures. Full details
+  in `.superpowers/sdd/p3s10-task-3-report.md`.
