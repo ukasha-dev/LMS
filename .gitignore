@@ -48,3 +48,14 @@ Thumbs.db
 *.mov
 *.wmv
 
+# Project-specific: dependencies, tools, and generated/runtime content —
+# not application code, not meant to be tracked.
+/vendor/
+/composer.phar
+/.phpunit.result.cache
+/application/third_party/tcpdf/
+/application/logs/*.php
+/uploads/
+/backend/captcha_images/*.jpg
+*.bak
+
