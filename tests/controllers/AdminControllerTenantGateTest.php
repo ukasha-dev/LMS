@@ -169,6 +169,34 @@ final class AdminControllerTenantGateTest extends TestCase
         $this->assertSame(404, $examresultStatus);
     }
 
+    public function testTenantScopedSessionReachesAllFourAllowlistedRoutesAndNothingElse(): void
+    {
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        [$staffListStatus, $staffListBody] = $this->curlGet('admin/staff/tenantStaffList');
+        $this->assertSame(200, $staffListStatus);
+        $this->assertStringContainsString('Tenant Staff List', $staffListBody);
+
+        [$feesListStatus, $feesListBody] = $this->curlGet('admin/feesforward/tenantFeesList');
+        $this->assertSame(200, $feesListStatus);
+        $this->assertStringContainsString('Tenant Fees List', $feesListBody);
+
+        [$examResultsStatus, $examResultsBody] = $this->curlGet('admin/examgroup/tenantExamResultsList');
+        $this->assertSame(200, $examResultsStatus);
+        $this->assertStringContainsString('Tenant Exam Results List', $examResultsBody);
+
+        [$attendanceStatus, $attendanceBody] = $this->curlGet('admin/stuattendence/tenantAttendanceList');
+        $this->assertSame(200, $attendanceStatus);
+        $this->assertStringContainsString('Tenant Attendance List', $attendanceBody);
+
+        [$dashboardStatus, ] = $this->curlGet('admin/admin/dashboard');
+        $this->assertSame(404, $dashboardStatus);
+
+        [$stuattendenceIndexStatus, ] = $this->curlGet('admin/stuattendence');
+        $this->assertSame(404, $stuattendenceIndexStatus);
+    }
+
     private function curlPostPilotLogin(): array
     {
         $ch = curl_init(self::BASE_URL . 'pilotlogin/login');
