@@ -553,11 +553,13 @@ made.
      tenant-scoped method each (`tenantAttendanceList()` /
      `getTenantScopedAttendanceList($tenantId)`, the same explicit
      `WHERE tenant_id = ?` filter strategy locked in during Phase 2 Stage 6
-     and reused unchanged by Stages 3-4). This is the THIRD consecutive
-     stage to add "one allowlist entry and one gated method" with zero new
-     infrastructure needed — confirming the mechanism now scales cleanly
-     to four controllers at the same one-line-per-stage cost, not just
-     three. The allowlist gate, `Db_manager` connection gate, and settings
+     and reused unchanged by Stages 3-4). This is the THIRD real-controller
+     retrofit (Stages 3, 4, and 6 — Stage 5 sat between them and added no
+     allowlist entry, so it's three consecutive *retrofits*, not three
+     consecutive *stages*) to add "one allowlist entry and one gated
+     method" with zero new infrastructure needed — confirming the
+     mechanism now scales cleanly to four controllers at the same
+     one-line-per-stage cost, not just three. The allowlist gate, `Db_manager` connection gate, and settings
      fixture tables have all been unchanged since Phase 2 Stage 6. No bugs
      found during implementation or verification. Verified end to end with
      a real `PilotLogin` authentication, in one script against a single
