@@ -786,8 +786,9 @@ made.
      tenant-25 student list via `pilotstudents/index`'s real `<h1>Pilot
      Students (tenant_id = 25)</h1>` heading, proving the fix didn't
      break the harness's actual purpose. Full suite: `OK (75 tests, 285
-     assertions)` (72 from Phase 3 Stage 7 + Task 1's
-     `PilotAccessGateTest` + this stage's 3 new tests, no regressions).
+     assertions)` (68 from Phase 3 Stage 7 + Task 1's 4-test
+     `PilotAccessGateTest` + this stage's 3 new `PilotSecurityTest` tests
+     = 75, no regressions).
      `git diff` for `application/core/MY_Controller.php` and
      `application/libraries/Db_manager.php` is empty — this stage is
      completely isolated from the 5 already-retrofitted real controllers
