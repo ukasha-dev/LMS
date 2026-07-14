@@ -443,6 +443,84 @@ made.
      of the above; full suite `OK (61 tests, 246 assertions)` (59 from
      Phase 3 Stage 3 + this stage's 2 new tests, no regressions).
 
+   - **Stage 5 — Shadow-verify real Site.php login** — ✅ complete
+     (2026-07-14, plan:
+     `2026-07-14-multi-tenant-phase3-stage5-shadow-login-verify.md`;
+     commits `e0c00ae9`, `1ae18656`, `839e6786`). Unlike Stages 3 and 4,
+     this stage does not add a new gated method or touch the allowlist at
+     all — it wires a small, isolated, read-only credential check into the
+     one real production login path every one of the 6 schools shares,
+     `Site.php::login()`. Task 1 built `tools/multitenant/ShadowLoginVerifier.php`,
+     a standalone PDO-based class (no CodeIgniter dependencies) that takes
+     an email/password/tenant_id and an injected password-hash-matching
+     callable, queries `school_saas.staff` directly, and returns
+     `{matched, reason}` — unit-tested against a synthetic fixture (5 new
+     tests). Task 2 wired a guarded call to it into the real `Site.php`:
+     after a real login already succeeds and the pre-existing multi-branch
+     login fix has already resolved `$found_group === 'branch_25'`
+     (Al-Hafeez Campus, tenant_id 25, the sole pilot tenant), it opens an
+     isolated PDO connection to `school_saas` (via the `school_saas_pilot`
+     config entry, never `$this->db`), re-verifies the same credentials
+     the user just logged in with, and `log_message`s the result —
+     wrapped in try/catch so any failure is swallowed, never surfacing to
+     the user. No session key, no redirect target, and no response body
+     changes as a result of this block, for any of the 6 schools,
+     ever — the block runs purely for its logged side effect. `Site.php`
+     was clean going into this stage (the "MULTI BRANCH STAFF LOGIN FIX"
+     block Task 2 gates on had already landed separately, in commit
+     `2e507f3c`, four days earlier), so a plain commit (`1ae18656`) was
+     used, plus a tiny follow-up doc-fix commit (`839e6786`) correcting one
+     inaccurate code comment a reviewer caught about how the block avoids
+     touching `$this->db`.
+
+     **Verification and its honest limitation:** Task 3 confirmed the
+     known test credential is still intact in `school_saas`
+     (`rabiachauhan923@gmail.com`, id 1, tenant_id 25), then directly
+     invoked `ShadowLoginVerifier` against that real (not synthetic) row
+     for three cases — correct password, wrong password, wrong tenant —
+     all three matching expectations exactly
+     (`{"matched":true,"reason":"ok"}`,
+     `{"matched":false,"reason":"password_mismatch"}`,
+     `{"matched":false,"reason":"no_matching_row"}`), closing the gap
+     between "unit-tested against a fixture" and "works against the
+     actual pilot tenant's real staff table." The Task 2 Step 4
+     failure-path smoke test (`site/login` with a bogus, non-existent
+     account) was re-run against the fully-committed state and returned
+     the same `200` + "Invalid Username Or Password" content as before,
+     confirming the committed code behaves identically to the working-tree
+     version already smoke-tested in Task 2. Full suite:
+     `OK (66 tests, 251 assertions)` (61 from Phase 3 Stage 4 + 5 new
+     `ShadowLoginVerifier` tests from Task 1; Task 2 added no new automated
+     tests, a known and deliberate limitation, not an oversight — see
+     below). **What this stage did NOT do, and why:** no real
+     `branch_25`/Al-Hafeez-Campus HTTP-level login was ever exercised
+     against `Site.php` with this stage's shadow-verify code live. Doing
+     so would have required either using a real school's live production
+     password (touching a real school's real credentials was explicitly
+     out of scope) or inserting new synthetic test data into the live
+     `al_hafeez_campus` production database purely to manufacture a
+     crash-test credential (also explicitly out of scope, unlike the
+     read-only `school_saas` checks above). Task 3 Step 2's direct-class
+     invocation against real `school_saas` data is the closest verification
+     available without doing either — it proves the verifier logic is
+     correct against real migrated rows, but it does not prove the guarded
+     call site inside `Site.php` actually fires and logs correctly on a
+     genuine authenticated request. That end-to-end HTTP-level gap remains
+     open, by design, until a future stage can either use a disposable
+     test-only tenant or gets sign-off to touch real pilot-tenant
+     credentials.
+
+     **Deliberately no `admin_tenant_id`, no allowlist change:** unlike
+     Phase 2 Stage 6 and Phase 3 Stages 3-4, this stage does not set the
+     `admin_tenant_id` session flag and does not add or modify any entry
+     in `Admin_Controller`'s allowlist gate — it has nothing to do with
+     that mechanism. This is pure read-only shadow verification bolted
+     onto the tail of the existing real-login success path: real users,
+     including the real `al_hafeez_campus` staff, see zero behavior
+     change — same session, same redirect, same response, for every
+     school, every time. The only observable effect is a new log line on
+     pilot-tenant logins.
+
 4. **Phase 4 — API layer** (not yet planned)
    Apply the same treatment to `api/` (112 files) — separate branch-switch
    logic today, needs its own tenant-scoping pass.
