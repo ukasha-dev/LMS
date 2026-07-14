@@ -123,4 +123,9 @@ class Department_model extends MY_model
         }
     }
 
+    public function getTenantScopedDepartmentList($tenantId)
+    {
+        return $this->db->where('tenant_id', $tenantId)->get('department')->result_array();
+    }
+
 }

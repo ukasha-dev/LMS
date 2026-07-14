@@ -233,4 +233,9 @@ class Role_model extends MY_Model {
         return $query->num_rows();
     }
 
+    public function getTenantScopedRolesList($tenantId)
+    {
+        return $this->db->where('tenant_id', $tenantId)->get('roles')->result_array();
+    }
+
 }

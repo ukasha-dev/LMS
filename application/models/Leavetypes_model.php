@@ -126,4 +126,9 @@ class Leavetypes_model extends MY_model
         }
     }
 
+    public function getTenantScopedLeaveTypesList($tenantId)
+    {
+        return $this->db->where('tenant_id', $tenantId)->get('leave_types')->result_array();
+    }
+
 }

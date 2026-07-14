@@ -128,4 +128,17 @@ class Sections extends Admin_Controller
         }
     }
 
+    public function tenantSectionList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $sectionList = $this->section_model->getTenantScopedSectionList((int) $tenantId);
+        $this->load->view('section/tenant_section_list', ['sectionList' => $sectionList]);
+    }
+
 }

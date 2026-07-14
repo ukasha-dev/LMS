@@ -182,4 +182,17 @@ class Roles extends Admin_Controller
         $this->role_model->remove($id);
         redirect('admin/roles/index');
     }
+
+    public function tenantRolesList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $rolesList = $this->role_model->getTenantScopedRolesList((int) $tenantId);
+        $this->load->view('admin/roles/tenant_roles_list', ['rolesList' => $rolesList]);
+    }
 }

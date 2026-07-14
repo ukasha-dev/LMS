@@ -98,4 +98,17 @@ class LeaveTypes extends Admin_Controller
         redirect('admin/leavetypes');
     }
 
+    public function tenantLeaveTypesList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $leaveTypesList = $this->leavetypes_model->getTenantScopedLeaveTypesList((int) $tenantId);
+        $this->load->view('admin/staff/tenant_leave_types_list', ['leaveTypesList' => $leaveTypesList]);
+    }
+
 }

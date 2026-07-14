@@ -125,4 +125,9 @@ class Designation_model extends MY_model
         }
     }
 
+    public function getTenantScopedDesignationList($tenantId)
+    {
+        return $this->db->where('tenant_id', $tenantId)->get('staff_designation')->result_array();
+    }
+
 }

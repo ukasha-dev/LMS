@@ -68,6 +68,11 @@ class Admin_Controller extends MY_Controller
                 'stuattendence' => 'tenantattendancelist',
                 'leaverequest' => 'tenantleaverequestlist',
                 'classes' => 'tenantclasslist',
+                'sections' => 'tenantsectionlist',
+                'roles' => 'tenantroleslist',
+                'department' => 'tenantdepartmentlist',
+                'designation' => 'tenantdesignationlist',
+                'leavetypes' => 'tenantleavetypeslist',
             ];
             if (!isset($allowedTenantRoutes[$activeController]) || $allowedTenantRoutes[$activeController] !== $activeMethod) {
                 show_404();

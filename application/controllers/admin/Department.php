@@ -78,6 +78,19 @@ class Department extends Admin_Controller {
         redirect('admin/department/department');
     }
 
+    public function tenantDepartmentList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $departmentList = $this->department_model->getTenantScopedDepartmentList((int) $tenantId);
+        $this->load->view('admin/staff/tenant_department_list', ['departmentList' => $departmentList]);
+    }
+
 }
 
 ?>

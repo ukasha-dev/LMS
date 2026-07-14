@@ -81,6 +81,19 @@ class Designation extends Admin_Controller {
         redirect('admin/designation/designation');
     }
 
+    public function tenantDesignationList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $designationList = $this->designation_model->getTenantScopedDesignationList((int) $tenantId);
+        $this->load->view('admin/staff/tenant_designation_list', ['designationList' => $designationList]);
+    }
+
 }
 
 ?>

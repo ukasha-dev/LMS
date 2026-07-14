@@ -179,4 +179,9 @@ class Section_model extends MY_Model {
         }
     }
 
+    public function getTenantScopedSectionList($tenantId)
+    {
+        return $this->db->where('tenant_id', $tenantId)->get('sections')->result_array();
+    }
+
 }
