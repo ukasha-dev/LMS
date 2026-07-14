@@ -593,6 +593,105 @@ made.
      Stage 3 and carried since) remains present and untouched by this
      stage's commits, each of which staged only its own target files.
 
+   - **Stage 7 — Fifth real controller retrofit (Leaverequest)** — ✅
+     complete (2026-07-14, plan:
+     `2026-07-14-multi-tenant-phase3-stage7-fifth-controller-retrofit.md`;
+     commits `eb6ece4b` (allowlist entry), `8a0dc204` (gated method),
+     `929b68df` (regression test), plus this roadmap-update commit). The
+     FIFTH stage to touch code in the LIVE admin panel's shared execution
+     path (after Phase 2 Stage 6's `Staff.php`, Phase 3 Stage 3's
+     `Feesforward.php`, Phase 3 Stage 4's `Examgroup.php`, and Phase 3
+     Stage 6's `Stuattendence.php`), and — like Stages 3, 4, and 6 before
+     it — a deliberately small one: no new database migration was needed
+     at all, since `staff_leave_details`/`leave_types` (32 real rows for
+     tenant 25) were already migrated to `school_saas` in Phase 3 Stage 2,
+     and the `sch_settings`/`languages`/`currencies` fixture tables
+     `MY_Controller`'s autoload chain needs were already put in place by
+     Phase 2 Stage 6's Post-Task-5 fix and reused unchanged by Stages 3,
+     4, and 6. This stage's only job was to prove the allowlist-gate
+     mechanism (`Admin_Controller`'s `admin_tenant_id` check in
+     `application/core/MY_Controller.php`, generalized from a single `if`
+     to a keyed array by Phase 3 Stage 3's own Task 1) generalizes to a
+     FIFTH real controller, not just four. It did, exactly as Stage 6's
+     final review predicted: the allowlist gained one new entry
+     (`'leaverequest' => 'tenantleaverequestlist'`) alongside the four
+     pre-existing entries (`'staff' => 'tenantstafflist'`, `'feesforward'
+     => 'tenantfeeslist'`, `'examgroup' => 'tenantexamresultslist'`,
+     `'stuattendence' => 'tenantattendancelist'`), with zero changes to
+     the gate's conditional logic, `Db_manager`'s connection-routing gate,
+     or any other shared file — another one-line array addition, no gate
+     rebuild. `Leaverequest.php`/`Leaverequest_model.php` gained one new
+     tenant-scoped method each (`tenantLeaveRequestList()` /
+     `getTenantScopedLeaveList($tenantId)`, the same explicit `WHERE
+     tenant_id = ?` filter strategy locked in during Phase 2 Stage 6 and
+     reused unchanged by Stages 3, 4, and 6). This is the FOURTH
+     real-controller retrofit (Stages 3, 4, 6, and 7 — Stage 5 sat between
+     Stages 4 and 6 and added no allowlist entry, so these are four
+     consecutive *retrofits*, not four consecutive *stages*; counting from
+     Phase 2 Stage 6's original `Staff.php` implementation, this is the
+     FIFTH real controller in the series overall — staff, feesforward,
+     examgroup, stuattendence, now leaverequest) to add "one allowlist
+     entry and one gated method" with zero new infrastructure needed —
+     confirming the mechanism now scales cleanly to five controllers at
+     the same one-line-per-stage cost, not just four. The allowlist gate,
+     `Db_manager` connection gate, and settings fixture tables have all
+     been unchanged since Phase 2 Stage 6. No bugs found during
+     implementation or verification. Verified end to end with a real
+     `PilotLogin` authentication, in one script against a single fixed
+     cookie jar (the documented shell-variable-persistence pitfall from
+     earlier stages): the real `admin/staff/tenantStaffList` still returns
+     the real 18 tenant-25 staff rows, `admin/feesforward/tenantFeesList`
+     still returns the real 699 tenant-25 fee-deposit rows,
+     `admin/examgroup/tenantExamResultsList` still returns the real 2785
+     tenant-25 exam-result rows, and `admin/stuattendence/tenantAttendanceList`
+     still returns the real 1124 tenant-25 attendance rows (proving the
+     fifth allowlist entry didn't regress any of the four prior routes),
+     the real `admin/leaverequest/tenantLeaveRequestList` returns the real
+     32 tenant-25 leave-request rows, and `admin/admin/dashboard`, the
+     real un-gated `admin/staff` index, `admin/feesforward` index,
+     `admin/examgroup` index, `admin/stuattendence` index, a completely
+     unrelated real controller (`admin/examresult`), AND two real sibling
+     methods on the newly-allowlisted controller itself
+     (`admin/leaverequest/leaverequest`, `admin/leaverequest/leaveRecord`)
+     all return `404` for that same tenant-scoped session — proving the
+     allowlist is specific to the exact five gated methods, never opening
+     up a whole controller (including the one that was JUST allowlisted)
+     or an unrelated one. One new credentialed regression test added to
+     `tests/controllers/AdminControllerTenantGateTest.php` codifying all
+     of the above; full suite `OK (68 tests, 275 assertions)` (67 from
+     Phase 3 Stage 6 + this stage's 1 new test, no regressions). `git
+     diff` for `Leaverequest.php`/`Leaverequest_model.php` confirms only
+     additions — the pre-existing `leaverequest`, `countLeave`,
+     `leaveStatus`, `remove`, `leaveRecord`, `dateDifference`, `addLeave`,
+     `add_staff_leave`, `handle_upload`, and `downloadleaverequestdoc`
+     methods serving real, un-gated schools today were left untouched.
+     Pre-existing unrelated uncommitted work in the working tree (noted at
+     the start of Phase 3 Stage 3 and carried since) remains present and
+     untouched by this stage's commits, each of which staged only its own
+     target files.
+
+     **One observed anomaly, investigated and confirmed benign:** the bare
+     `admin/leaverequest` URL (no method segment) returns `307` redirecting
+     to `site/userlogin` rather than a literal `404`. Root cause: unlike
+     `Staff.php`/`Feesforward.php`/`Examgroup.php`/`Stuattendence.php`
+     (which all define an `index()` method, so a bare request routes to
+     that method and is then blocked by the allowlist gate's own
+     `show_404()` call), `Leaverequest.php` has never had an `index()`
+     method — its first real method has always been `leaverequest()`. CI3
+     therefore cannot resolve a callable method for the bare URL at all,
+     which triggers the global `404_override` route
+     (`welcome/show_404`); `Welcome` extends `Front_Controller`
+     (`application/core/MY_Controller.php`, lines ~276-305), whose
+     constructor unconditionally redirects to `site/userlogin` when the
+     front CMS / online-admission features aren't active — pre-existing,
+     tenant-gate-unrelated, global app behavior, confirmed unchanged by
+     this stage's commits. Both real sibling-method probes the regression
+     test actually exercises (`admin/leaverequest/leaverequest`,
+     `admin/leaverequest/leaveRecord`) correctly return `404`, proving the
+     gate itself is unaffected; this anomaly is scoped entirely to the one
+     bare-URL manual check and does not weaken the security property under
+     test.
+
 4. **Phase 4 — API layer** (not yet planned)
    Apply the same treatment to `api/` (112 files) — separate branch-switch
    logic today, needs its own tenant-scoping pass.
