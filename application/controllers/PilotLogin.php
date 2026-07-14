@@ -49,6 +49,7 @@ class PilotLogin extends Pilot_Controller
 
         $staffRows = $this->tenant_model->tenantGetAll('staff', ['email' => $email]);
         if (count($staffRows) !== 1) {
+            $this->session->unset_userdata('pilot_tenant_id');
             echo 'Invalid email or password.';
 
             return;
@@ -56,12 +57,14 @@ class PilotLogin extends Pilot_Controller
 
         $staff = $staffRows[0];
         if (!$this->enc_lib->passHashDyc($password, $staff['password'])) {
+            $this->session->unset_userdata('pilot_tenant_id');
             echo 'Invalid email or password.';
 
             return;
         }
 
         if ((int) $staff['is_active'] !== 1) {
+            $this->session->unset_userdata('pilot_tenant_id');
             echo 'Account disabled.';
 
             return;

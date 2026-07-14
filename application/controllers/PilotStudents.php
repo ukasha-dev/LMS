@@ -29,12 +29,6 @@ class PilotStudents extends Pilot_Controller
         $this->load->model('Tenant_Model', 'tenant_model');
     }
 
-    public function login_as($tenantId)
-    {
-        $this->session->set_userdata('pilot_tenant_id', (int) $tenantId);
-        echo "Pilot session set to tenant_id={$tenantId}. Now visit /web-app/pilotstudents/index\n";
-    }
-
     public function index()
     {
         $students = $this->tenant_model->tenantGetAll('students');
