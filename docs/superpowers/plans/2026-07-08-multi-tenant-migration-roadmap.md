@@ -818,6 +818,100 @@ made.
      residual risk of shipping 8 controllers whose entire design assumes
      `ENVIRONMENT !== 'production'` is enforced correctly forever.
 
+   - **Stage 9 — Sixth real controller retrofit (Classes)** — ✅ complete
+     (2026-07-14, plan:
+     `2026-07-14-multi-tenant-phase3-stage9-sixth-controller-retrofit.md`;
+     commits `3db01c8f` (allowlist entry), `9bd89af6` (gated method),
+     `8dd183e1` (regression test), plus this roadmap-update commit). The
+     SIXTH stage to touch code in the LIVE admin panel's shared execution
+     path (after Phase 2 Stage 6's `Staff.php`, Phase 3 Stage 3's
+     `Feesforward.php`, Phase 3 Stage 4's `Examgroup.php`, Phase 3 Stage
+     6's `Stuattendence.php`, and Phase 3 Stage 7's `Leaverequest.php`),
+     and — like Stages 3, 4, 6, and 7 before it — a deliberately small
+     one: no new database migration was needed at all, since `classes`
+     (7 real rows for tenant 25) was already migrated to `school_saas` in
+     Phase 2 Stage 2, and the `sch_settings`/`languages`/`currencies`
+     fixture tables `MY_Controller`'s autoload chain needs were already
+     put in place by Phase 2 Stage 6's Post-Task-5 fix and reused
+     unchanged by Stages 3, 4, 6, and 7. This stage's only job was to
+     prove the allowlist-gate mechanism (`Admin_Controller`'s
+     `admin_tenant_id` check in `application/core/MY_Controller.php`)
+     generalizes to a SIXTH real controller, not just five. It did,
+     exactly as Stage 7's final review predicted: the allowlist gained
+     one new entry (`'classes' => 'tenantclasslist'`) alongside the five
+     pre-existing entries (`'staff' => 'tenantstafflist'`, `'feesforward'
+     => 'tenantfeeslist'`, `'examgroup' => 'tenantexamresultslist'`,
+     `'stuattendence' => 'tenantattendancelist'`, `'leaverequest' =>
+     'tenantleaverequestlist'`), with zero changes to the gate's
+     conditional logic, `Db_manager`'s connection-routing gate, or any
+     other shared file — another one-line array addition, no gate
+     rebuild (confirmed live: `git show --stat 3db01c8f` shows exactly
+     `application/core/MY_Controller.php | 1 +`). `Classes.php`/
+     `Class_model.php` gained one new tenant-scoped method each
+     (`tenantClassList()` / `getTenantScopedClassList($tenantId)`, the
+     same explicit `WHERE tenant_id = ?` filter strategy locked in during
+     Phase 2 Stage 6 and reused unchanged by Stages 3, 4, 6, and 7);
+     `git show --stat 9bd89af6` confirms `application/controllers/Classes.php`
+     (+13), `application/models/Class_model.php` (+5), and the new
+     `application/views/class/tenant_class_list.php` (+12) — 30
+     insertions, 0 deletions across all three files, i.e. pure additions.
+     This is the FIFTH real-controller retrofit within Phase 3 (Stages 3,
+     4, 6, 7, and 9 — Stage 5 sat before Stage 6 and Stage 8 sat between
+     Stage 7 and Stage 9, and neither added an allowlist entry, so these
+     are five consecutive *retrofits* within Phase 3, not five
+     consecutive *stages*; counting from Phase 2 Stage 6's original
+     `Staff.php` implementation, this is the SIXTH real controller in the
+     series overall — staff, feesforward, examgroup, stuattendence,
+     leaverequest, now classes) to add "one allowlist entry and one gated
+     method" with zero new infrastructure needed — confirming the
+     mechanism now scales cleanly to six controllers at the same
+     one-line-per-stage cost, not just five. The allowlist gate,
+     `Db_manager` connection gate, and settings fixture tables have all
+     been unchanged since Phase 2 Stage 6. No bugs found during
+     implementation or verification. Verified end to end with a real
+     `PilotLogin` authentication, in one script against a single fixed
+     cookie jar (the documented shell-variable-persistence pitfall from
+     earlier stages): the real `admin/staff/tenantStaffList` still
+     returns the real 18 tenant-25 staff rows, `admin/feesforward/tenantFeesList`
+     still returns the real 699 tenant-25 fee-deposit rows,
+     `admin/examgroup/tenantExamResultsList` still returns the real 2785
+     tenant-25 exam-result rows, `admin/stuattendence/tenantAttendanceList`
+     still returns the real 1124 tenant-25 attendance rows, and
+     `admin/leaverequest/tenantLeaveRequestList` still returns the real 32
+     tenant-25 leave-request rows (proving the sixth allowlist entry
+     didn't regress any of the five prior routes), the real
+     `classes/tenantClassList` returns the real 7 tenant-25 class rows,
+     and `admin/admin/dashboard`, the real un-gated `admin/staff` index,
+     `admin/feesforward` index, `admin/examgroup` index,
+     `admin/stuattendence` index, a completely unrelated real controller
+     (`admin/examresult`), AND two real sibling methods plus the bare
+     index route on the newly-allowlisted controller itself
+     (`classes/index`, `classes/edit/1`, and the bare `classes` route,
+     which resolves to the real `index()` method) all return `404` for
+     that same tenant-scoped session — proving the allowlist is specific
+     to the exact six gated methods, never opening up a whole controller
+     (including the one that was JUST allowlisted) or an unrelated one.
+     Unlike Stage 7's `Leaverequest.php` (which has no `index()` method,
+     producing the documented benign 307-to-login anomaly on its own bare
+     route), `Classes.php` does define `index()`, so `classes` (bare) and
+     `classes/index` both exercise the actual allowlist-gate `show_404()`
+     path and return a literal `404`, not the Stage 7-style redirect —
+     confirmed live, no anomaly this stage. One new credentialed
+     regression test added to
+     `tests/controllers/AdminControllerTenantGateTest.php`
+     (`testTenantScopedSessionReachesAllSixAllowlistedRoutesAndNothingElse`)
+     codifying all of the above; full suite `OK (76 tests, 300
+     assertions)` (75 from Phase 3 Stage 8 + this stage's 1 new test, no
+     regressions). `git diff`/`git show --stat` for `Classes.php`/
+     `Class_model.php` confirms only additions — the pre-existing
+     `index`, `delete`, `edit`, and `get_section` methods serving real,
+     un-gated schools today were left untouched (confirmed by direct
+     read of the live file alongside the diff). Pre-existing unrelated
+     uncommitted work in the working tree (the omnipay vendor-file
+     deletion, the only item remaining as of Stage 8's close) remains
+     present and untouched by this stage's commits, each of which staged
+     only its own target files.
+
 4. **Phase 4 — API layer** (not yet planned)
    Apply the same treatment to `api/` (112 files) — separate branch-switch
    logic today, needs its own tenant-scoping pass.
