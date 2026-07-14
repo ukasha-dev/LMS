@@ -151,4 +151,17 @@ class Classes extends Admin_Controller
         $this->load->view('class/_section_list', $data);
     }
 
+    public function tenantClassList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $classList = $this->class_model->getTenantScopedClassList((int) $tenantId);
+        $this->load->view('class/tenant_class_list', ['classList' => $classList]);
+    }
+
 }
