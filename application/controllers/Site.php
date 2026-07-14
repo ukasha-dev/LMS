@@ -201,6 +201,44 @@ class Site extends Public_Controller
                     $role_name = json_decode($role)->name;
                     $this->customlib->setUserLog($this->input->post('username'), $role_name);
 
+                    // --- SHADOW TENANT LOGIN VERIFY (Phase 3 Stage 5) ---
+                    // Read-only, pilot-tenant-only, best-effort proof that
+                    // school_saas agrees with this real login. Never sets
+                    // session data, never changes the redirect below, never
+                    // touches $this->db (uses the `true` second arg to get
+                    // an isolated connection object instead), and any
+                    // failure here is swallowed. branch_25 == al_hafeez_campus
+                    // == tenant_id 25 (multi_branch.id 25, confirmed live) —
+                    // this never runs for the other 5 schools.
+                    if (isset($found_group) && $found_group === 'branch_25') {
+                        try {
+                            require_once APPPATH . '../tools/multitenant/ShadowLoginVerifier.php';
+                            $shadowDbConfig = $db['school_saas_pilot'];
+                            $shadowPdo = new PDO(
+                                'mysql:host=' . $shadowDbConfig['hostname'] . ';dbname=' . $shadowDbConfig['database'] . ';charset=utf8mb4',
+                                $shadowDbConfig['username'],
+                                $shadowDbConfig['password']
+                            );
+                            $shadowPdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+                            $shadowVerifier = new ShadowLoginVerifier($shadowPdo);
+                            $shadowResult = $shadowVerifier->verify(
+                                $login_post['email'],
+                                $login_post['password'],
+                                25,
+                                [$this->enc_lib, 'passHashDyc']
+                            );
+                            log_message(
+                                $shadowResult['matched'] ? 'info' : 'error',
+                                '[ShadowTenantLoginVerify] email=' . $login_post['email']
+                                . ' matched=' . ($shadowResult['matched'] ? '1' : '0')
+                                . ' reason=' . $shadowResult['reason']
+                            );
+                        } catch (\Throwable $e) {
+                            log_message('error', '[ShadowTenantLoginVerify] EXCEPTION ' . $e->getMessage());
+                        }
+                    }
+                    // --- END SHADOW TENANT LOGIN VERIFY ---
+
                     if (isset($_SESSION['redirect_to'])) {
                         redirect($_SESSION['redirect_to']);
                     } else {
