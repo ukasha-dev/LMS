@@ -2,7 +2,9 @@
 
 defined('BASEPATH') or exit('No direct script access allowed');
 
-class PilotStudentSessions extends CI_Controller
+require_once APPPATH . 'core/Pilot_Controller.php';
+
+class PilotStudentSessions extends Pilot_Controller
 {
     public function __construct()
     {
