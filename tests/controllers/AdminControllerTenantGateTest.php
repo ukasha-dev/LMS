@@ -1204,6 +1204,108 @@ final class AdminControllerTenantGateTest extends TestCase
             ->execute([$date]);
     }
 
+    public function testTenantSubjectAttendanceSaveRejectsForgedForeignKeysAndIsolatesPerTenant(): void
+    {
+        $date = '2026-01-16';
+        $pdo  = new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', '');
+
+        // subject_timetable has no real migrated data yet for any tenant --
+        // create real fixture rows directly, same precedent as Hostelroom's
+        // hostel/room_types fixtures when no pre-existing data was available.
+        $pdo->exec("INSERT INTO subject_timetable (tenant_id, day, created_at, updated_at) VALUES (25, 'Monday', NOW(), NOW())");
+        $tenant25TimetableId = (int) $pdo->lastInsertId();
+        $pdo->exec("INSERT INTO subject_timetable (tenant_id, day, created_at, updated_at) VALUES (26, 'Monday', NOW(), NOW())");
+        $tenant26TimetableId = (int) $pdo->lastInsertId();
+
+        try {
+            [$loginStatus, ] = $this->curlPostPilotLogin();
+            $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+            // Tenant 25 saves attendance for its own student_session #312
+            // against its own attendance type #1 (Present), on its own
+            // subject_timetable row -- must succeed.
+            [$saveStatus, $saveBody] = $this->curlPost('admin/subjectattendence/tenantSubjectAttendanceSave', [
+                'subject_timetable_id' => $tenant25TimetableId,
+                'student_session_ids' => [312],
+                'date' => $date,
+                'attendencetype312' => 1,
+                'remark312' => 'present via isolation test',
+            ]);
+            $this->assertSame(200, $saveStatus);
+            $this->assertStringContainsString('Attendance saved for 1 student(s).', $saveBody);
+
+            [$listStatus, $listBody] = $this->curlGet('admin/subjectattendence/tenantSubjectAttendanceList?date=' . $date);
+            $this->assertSame(200, $listStatus);
+            $this->assertStringContainsString('session #312', $listBody);
+            $this->assertStringContainsString('type #1', $listBody);
+
+            $otherCookieJar = tempnam(sys_get_temp_dir(), 'admgate_test_other_');
+            $realCookieJar = $this->cookieJar;
+            $this->cookieJar = $otherCookieJar;
+
+            try {
+                [$otherLoginStatus, ] = $this->curlPostPilotLoginAs(26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!');
+                $this->assertContains($otherLoginStatus, [200, 302, 303, 307]);
+
+                // Forgery 1: tenant 26 references tenant 25's subject_timetable
+                // row -- the shared parent-level FK -- must 404 the whole request.
+                [$forgeTimetableStatus, ] = $this->curlPost('admin/subjectattendence/tenantSubjectAttendanceSave', [
+                    'subject_timetable_id' => $tenant25TimetableId,
+                    'student_session_ids' => [796],
+                    'date' => $date,
+                    'attendencetype796' => 7,
+                    'remark796' => 'forged subject_timetable_id',
+                ]);
+                $this->assertSame(404, $forgeTimetableStatus);
+
+                // Forgery 2: tenant 26 uses its own subject_timetable row but
+                // references tenant 25's student_session #312 -- must be dropped.
+                [$forgeSessionStatus, $forgeSessionBody] = $this->curlPost('admin/subjectattendence/tenantSubjectAttendanceSave', [
+                    'subject_timetable_id' => $tenant26TimetableId,
+                    'student_session_ids' => [312],
+                    'date' => $date,
+                    'attendencetype312' => 7,
+                    'remark312' => 'forged student_session_id',
+                ]);
+                $this->assertSame(200, $forgeSessionStatus);
+                $this->assertStringContainsString('Attendance saved for 0 student(s).', $forgeSessionBody);
+
+                // Forgery 3: tenant 26 uses its own timetable row and its own
+                // student_session #796 but tenant 25's attendance type #1 --
+                // must also be dropped.
+                [$forgeTypeStatus, $forgeTypeBody] = $this->curlPost('admin/subjectattendence/tenantSubjectAttendanceSave', [
+                    'subject_timetable_id' => $tenant26TimetableId,
+                    'student_session_ids' => [796],
+                    'date' => $date,
+                    'attendencetype796' => 1,
+                    'remark796' => 'forged attendence_type_id',
+                ]);
+                $this->assertSame(200, $forgeTypeStatus);
+                $this->assertStringContainsString('Attendance saved for 0 student(s).', $forgeTypeBody);
+
+                // Tenant 26 must not see tenant 25's attendance row at all.
+                [$crossListStatus, $crossListBody] = $this->curlGet('admin/subjectattendence/tenantSubjectAttendanceList?date=' . $date);
+                $this->assertSame(200, $crossListStatus);
+                $this->assertStringNotContainsString('session #312', $crossListBody);
+            } finally {
+                $this->cookieJar = $realCookieJar;
+                @unlink($otherCookieJar);
+            }
+
+            // Tenant 25's original row must be untouched by both forgery attempts.
+            [$finalListStatus, $finalListBody] = $this->curlGet('admin/subjectattendence/tenantSubjectAttendanceList?date=' . $date);
+            $this->assertSame(200, $finalListStatus);
+            $this->assertStringContainsString('session #312', $finalListBody);
+            $this->assertStringContainsString('type #1', $finalListBody);
+        } finally {
+            // No tenant delete endpoint exists for this entity yet -- clean up
+            // everything this test created directly so nothing lingers as
+            // stray test data in a shared database.
+            $pdo->prepare('DELETE FROM student_subject_attendances WHERE date = ?')->execute([$date]);
+            $pdo->prepare('DELETE FROM subject_timetable WHERE id IN (?, ?)')->execute([$tenant25TimetableId, $tenant26TimetableId]);
+        }
+    }
+
     private function curlPost(string $path, array $fields): array
     {
         $ch = curl_init(self::BASE_URL . $path);

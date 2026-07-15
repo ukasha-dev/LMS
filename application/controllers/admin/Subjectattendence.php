@@ -152,4 +152,85 @@ class Subjectattendence extends Admin_Controller
         }
     }
 
+    // Tenant-safe batch save. Mirrors index()'s "saveattendence" branch but
+    // never trusts posted ids: the shared subject_timetable_id (one per
+    // whole batch) is verified once via tenantScopedFind and 404s the whole
+    // request if forged; student_session_id and attendence_type_id are
+    // batch-verified per row via tenantScopedBatchFind, and any row
+    // referencing an id this tenant doesn't own is silently dropped.
+    public function tenantSubjectAttendanceSave()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        if ($this->input->method() !== 'post') {
+            show_404();
+
+            return;
+        }
+
+        $subjectTimetableId = (int) $this->input->post('subject_timetable_id');
+        $subjectTimetable    = $this->studentsubjectattendence_model->tenantScopedFind('subject_timetable', (int) $tenantId, $subjectTimetableId);
+        if (!$subjectTimetable) {
+            show_404();
+
+            return;
+        }
+
+        $date              = $this->input->post('date');
+        $studentSessionIds = $this->input->post('student_session_ids') ?: [];
+
+        $ownedSessions = $this->studentsubjectattendence_model->tenantScopedBatchFind('student_session', (int) $tenantId, 'id', $studentSessionIds);
+
+        $typeIds = [];
+        foreach ($studentSessionIds as $sessionId) {
+            $typeIds[] = (int) $this->input->post('attendencetype' . $sessionId);
+        }
+        $ownedTypes = $this->studentsubjectattendence_model->tenantScopedBatchFind('attendence_type', (int) $tenantId, 'id', $typeIds);
+
+        $attendanceArray = [];
+        foreach ($studentSessionIds as $sessionId) {
+            $sessionId = (int) $sessionId;
+            $typeId    = (int) $this->input->post('attendencetype' . $sessionId);
+
+            if (!isset($ownedSessions[$sessionId]) || !isset($ownedTypes[$typeId])) {
+                continue;
+            }
+
+            $attendanceArray[] = [
+                'student_session_id'   => $sessionId,
+                'attendence_type_id'   => $typeId,
+                'remark'               => (string) $this->input->post('remark' . $sessionId),
+                'subject_timetable_id' => $subjectTimetableId,
+                'date'                 => $date,
+            ];
+        }
+
+        $savedCount = $this->studentsubjectattendence_model->tenantScopedAddOrUpdate($attendanceArray, (int) $tenantId);
+        $this->load->view('admin/subjectattendence/tenant_subject_attendance_save', ['savedCount' => $savedCount]);
+    }
+
+    public function tenantSubjectAttendanceList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $where = [];
+        $date  = $this->input->get('date');
+        if ($date) {
+            $where['date'] = $date;
+        }
+
+        $attendanceList = $this->studentsubjectattendence_model->tenantScopedList('student_subject_attendances', (int) $tenantId, $where);
+        $this->load->view('admin/subjectattendence/tenant_subject_attendance_list', ['attendanceList' => $attendanceList]);
+    }
+
 }

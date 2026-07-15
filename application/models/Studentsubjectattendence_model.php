@@ -4,7 +4,7 @@ if (!defined('BASEPATH')) {
     exit('No direct script access allowed');
 }
 
-class Studentsubjectattendence_model extends CI_Model
+class Studentsubjectattendence_model extends MY_Model
 {
 
     public function __construct()
@@ -67,6 +67,52 @@ class Studentsubjectattendence_model extends CI_Model
             $this->db->trans_commit();
             return true;
         }    
+    }
+
+    // Tenant-safe batch analogue of addorUpdate() above. Every write is
+    // scoped to $tenantId: the existence check filters by tenant_id (so a
+    // stray student_session_id/subject_timetable_id/date combination
+    // belonging to another tenant is never silently updated), and every
+    // insert stamps tenant_id explicitly. Callers must already have
+    // verified student_session_id/attendence_type_id/subject_timetable_id
+    // ownership before calling this (see
+    // Subjectattendence::tenantSubjectAttendanceSave).
+    public function tenantScopedAddOrUpdate(array $attendances, int $tenantId): int
+    {
+        $this->db->trans_start();
+        $this->db->trans_strict(false);
+
+        $saved = 0;
+        foreach ($attendances as $attendance) {
+            $attendance['tenant_id'] = $tenantId;
+
+            $this->db->where('student_session_id', $attendance['student_session_id']);
+            $this->db->where('subject_timetable_id', $attendance['subject_timetable_id']);
+            $this->db->where('date', $attendance['date']);
+            $this->db->where('tenant_id', $tenantId);
+            $query = $this->db->get('student_subject_attendances');
+
+            if ($query->num_rows() > 0) {
+                $this->db->where('id', $query->row()->id);
+                $this->db->where('tenant_id', $tenantId);
+                $this->db->update('student_subject_attendances', $attendance);
+            } else {
+                $this->db->insert('student_subject_attendances', $attendance);
+            }
+            $saved++;
+        }
+
+        $this->db->trans_complete();
+
+        if ($this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+
+            return 0;
+        }
+
+        $this->db->trans_commit();
+
+        return $saved;
     }
 
     public function searchAttendenceClassSection($class_id, $section_id, $subject_timetable_id, $date)
