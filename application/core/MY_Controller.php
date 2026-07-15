@@ -112,6 +112,7 @@ class Admin_Controller extends MY_Controller
                 'subjectattendence' => ['tenantsubjectattendancesave', 'tenantsubjectattendancelist'],
                 'resume' => ['tenantresumesettingsfieldslist', 'tenantresumeworksave', 'tenantresumeeducationsave', 'tenantresumeskillsave', 'tenantresumereferencesave', 'tenantresumedetailslist'],
                 'tenantstudentcore' => ['tenantstudentcorecreate', 'tenantstudentcoreedit', 'tenantstudentcoredelete'],
+                'tenantstaffcore' => ['tenantstaffcorecreate', 'tenantstaffcoreedit', 'tenantstaffcoredelete'],
             ];
             if (!isset($allowedTenantRoutes[$activeController]) || !in_array($activeMethod, $allowedTenantRoutes[$activeController], true)) {
                 show_404();

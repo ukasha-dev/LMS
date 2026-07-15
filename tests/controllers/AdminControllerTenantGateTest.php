@@ -1590,6 +1590,112 @@ final class AdminControllerTenantGateTest extends TestCase
         $this->assertSame(1, $stillThere, 'a real student with a login must survive an attempted delete through this route');
     }
 
+    public function testTenantStaffCoreCreateEditDeleteRejectsForgedForeignKeysAndScopesUniquenessPerTenant(): void
+    {
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        $tenant26StaffId = null;
+
+        try {
+            // Tenant 25 creates a staff member using its own department/designation/role -- must succeed.
+            [$createStatus, $createBody] = $this->curlPost('tenantstaffcore/tenantStaffCoreCreate', [
+                'employee_id' => 'ISOTEST-STAFF-001',
+                'name' => 'Isolation Test Staff',
+                'email' => 'isotest.staff@example.test',
+                'department' => 1,
+                'designation' => 1,
+                'role_id' => 1,
+            ]);
+            $this->assertSame(200, $createStatus);
+            $this->assertMatchesRegularExpression('/Staff created with id (\d+)/', $createBody);
+            preg_match('/Staff created with id (\d+)/', $createBody, $matches);
+            $staffId = (int) $matches[1];
+
+            // Same tenant, same employee_id again -- must be rejected as a tenant-scoped duplicate.
+            [$dupStatus, $dupBody] = $this->curlPost('tenantstaffcore/tenantStaffCoreCreate', [
+                'employee_id' => 'ISOTEST-STAFF-001',
+                'name' => 'Duplicate Attempt',
+                'email' => 'someone.else@example.test',
+            ]);
+            $this->assertSame(200, $dupStatus);
+            $this->assertStringContainsString('Employee id or email already exists for this tenant.', $dupBody);
+
+            [$editGetStatus, $editGetBody] = $this->curlGet('tenantstaffcore/tenantStaffCoreEdit/' . $staffId);
+            $this->assertSame(200, $editGetStatus);
+            $this->assertStringContainsString('Isolation Test Staff', $editGetBody);
+
+            [$editPostStatus, $editPostBody] = $this->curlPost('tenantstaffcore/tenantStaffCoreEdit/' . $staffId, [
+                'name' => 'Isolation Test Staff',
+                'surname' => 'Updated Surname',
+                'email' => 'isotest.staff@example.test',
+            ]);
+            $this->assertSame(200, $editPostStatus);
+            $this->assertStringContainsString('Updated Surname', $editPostBody);
+
+            $otherCookieJar = tempnam(sys_get_temp_dir(), 'admgate_test_other_');
+            $realCookieJar = $this->cookieJar;
+            $this->cookieJar = $otherCookieJar;
+
+            try {
+                [$otherLoginStatus, ] = $this->curlPostPilotLoginAs(26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!');
+                $this->assertContains($otherLoginStatus, [200, 302, 303, 307]);
+
+                // Tenant 26 uses the SAME employee_id/email as tenant 25 --
+                // must succeed, proving the uniqueness check is tenant-scoped
+                // and not the legacy global check.
+                [$reuseStatus, $reuseBody] = $this->curlPost('tenantstaffcore/tenantStaffCoreCreate', [
+                    'employee_id' => 'ISOTEST-STAFF-001',
+                    'name' => 'Isolation Test Staff Tenant26',
+                    'email' => 'isotest.staff@example.test',
+                    'department' => 6,
+                    'designation' => 13,
+                    'role_id' => 9,
+                ]);
+                $this->assertSame(200, $reuseStatus);
+                $this->assertMatchesRegularExpression('/Staff created with id (\d+)/', $reuseBody, 'reusing another tenant\'s employee_id/email must be allowed');
+                preg_match('/Staff created with id (\d+)/', $reuseBody, $reuseMatches);
+                $tenant26StaffId = (int) $reuseMatches[1];
+
+                // Forgery: tenant 26 references tenant 25's department id -- must 404 the whole request.
+                [$forgeStatus, ] = $this->curlPost('tenantstaffcore/tenantStaffCoreCreate', [
+                    'employee_id' => 'ISOTEST-STAFF-002',
+                    'name' => 'Forged Staff',
+                    'email' => 'forged.staff@example.test',
+                    'department' => 1,
+                ]);
+                $this->assertSame(404, $forgeStatus, 'referencing another tenant department id must be rejected');
+
+                [$crossEditStatus, ] = $this->curlGet('tenantstaffcore/tenantStaffCoreEdit/' . $staffId);
+                $this->assertSame(404, $crossEditStatus, 'the other tenant must not be able to view this row by id');
+
+                [$crossDeleteStatus, ] = $this->curlGet('tenantstaffcore/tenantStaffCoreDelete/' . $staffId);
+                $this->assertSame(404, $crossDeleteStatus, 'the other tenant must not be able to delete this row by id');
+            } finally {
+                $this->cookieJar = $realCookieJar;
+                @unlink($otherCookieJar);
+            }
+
+            // Tenant 25's row must be untouched by the forgery/cross-tenant delete attempt.
+            [$finalEditStatus, $finalEditBody] = $this->curlGet('tenantstaffcore/tenantStaffCoreEdit/' . $staffId);
+            $this->assertSame(200, $finalEditStatus);
+            $this->assertStringContainsString('Updated Surname', $finalEditBody);
+
+            [$deleteStatus, $deleteBody] = $this->curlGet('tenantstaffcore/tenantStaffCoreDelete/' . $staffId);
+            $this->assertSame(200, $deleteStatus);
+            $this->assertStringContainsString('Staff deleted.', $deleteBody);
+
+            [$goneStatus, ] = $this->curlGet('tenantstaffcore/tenantStaffCoreEdit/' . $staffId);
+            $this->assertSame(404, $goneStatus);
+        } finally {
+            if ($tenant26StaffId) {
+                $pdo = new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', '');
+                $pdo->exec('DELETE FROM staff_roles WHERE staff_id = ' . $tenant26StaffId);
+                $pdo->exec('DELETE FROM staff WHERE id = ' . $tenant26StaffId);
+            }
+        }
+    }
+
     private function curlPost(string $path, array $fields): array
     {
         $ch = curl_init(self::BASE_URL . $path);
