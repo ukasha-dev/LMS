@@ -1495,6 +1495,101 @@ final class AdminControllerTenantGateTest extends TestCase
         }
     }
 
+    public function testTenantStudentCoreCreateEditDeleteRejectsForgedForeignKeysAndIsolatesPerTenant(): void
+    {
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        // Tenant 25 creates a student using its own class/section/session/category -- must succeed.
+        [$createStatus, $createBody] = $this->curlPost('tenantstudentcore/tenantStudentCoreCreate', [
+            'firstname' => 'Isolation Test Student',
+            'admission_no' => 'ISOTEST001',
+            'class_id' => 1,
+            'section_id' => 1,
+            'session_id' => 1,
+            'category_id' => 1,
+        ]);
+        $this->assertSame(200, $createStatus);
+        $this->assertMatchesRegularExpression('/Student created with id (\d+)/', $createBody);
+        preg_match('/Student created with id (\d+)/', $createBody, $matches);
+        $studentId = (int) $matches[1];
+
+        [$listStatus, $listBody] = $this->curlGet('student/tenantStudentList');
+        $this->assertSame(200, $listStatus);
+        $this->assertStringContainsString('Isolation Test Student', $listBody);
+        $this->assertStringContainsString('ISOTEST001', $listBody);
+
+        [$editGetStatus, $editGetBody] = $this->curlGet('tenantstudentcore/tenantStudentCoreEdit/' . $studentId);
+        $this->assertSame(200, $editGetStatus);
+        $this->assertStringContainsString('Isolation Test Student', $editGetBody);
+
+        [$editPostStatus, $editPostBody] = $this->curlPost('tenantstudentcore/tenantStudentCoreEdit/' . $studentId, [
+            'firstname' => 'Isolation Test Student',
+            'lastname' => 'Updated Lastname',
+            'class_id' => 1,
+            'section_id' => 1,
+        ]);
+        $this->assertSame(200, $editPostStatus);
+        $this->assertStringContainsString('Updated Lastname', $editPostBody);
+
+        $otherCookieJar = tempnam(sys_get_temp_dir(), 'admgate_test_other_');
+        $realCookieJar = $this->cookieJar;
+        $this->cookieJar = $otherCookieJar;
+
+        try {
+            [$otherLoginStatus, ] = $this->curlPostPilotLoginAs(26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!');
+            $this->assertContains($otherLoginStatus, [200, 302, 303, 307]);
+
+            // Forgery: tenant 26 creates a student using tenant 25's class_id -- must 404 the whole request.
+            [$forgeStatus, ] = $this->curlPost('tenantstudentcore/tenantStudentCoreCreate', [
+                'firstname' => 'Forged Student',
+                'admission_no' => 'FORGED001',
+                'class_id' => 1,
+                'section_id' => 9,
+                'session_id' => 16,
+            ]);
+            $this->assertSame(404, $forgeStatus, 'referencing another tenant class_id must be rejected');
+
+            [$crossEditStatus, ] = $this->curlGet('tenantstudentcore/tenantStudentCoreEdit/' . $studentId);
+            $this->assertSame(404, $crossEditStatus, 'the other tenant must not be able to view this row by id');
+
+            [$crossDeleteStatus, ] = $this->curlGet('tenantstudentcore/tenantStudentCoreDelete/' . $studentId);
+            $this->assertSame(404, $crossDeleteStatus, 'the other tenant must not be able to delete this row by id');
+        } finally {
+            $this->cookieJar = $realCookieJar;
+            @unlink($otherCookieJar);
+        }
+
+        // Tenant 25's row must be untouched by the forgery/cross-tenant delete attempts.
+        [$finalEditStatus, $finalEditBody] = $this->curlGet('tenantstudentcore/tenantStudentCoreEdit/' . $studentId);
+        $this->assertSame(200, $finalEditStatus);
+        $this->assertStringContainsString('Updated Lastname', $finalEditBody);
+
+        // This freshly-created test student has no login row, so tenant 25 can delete it via this route.
+        [$deleteStatus, $deleteBody] = $this->curlGet('tenantstudentcore/tenantStudentCoreDelete/' . $studentId);
+        $this->assertSame(200, $deleteStatus);
+        $this->assertStringContainsString('Student deleted.', $deleteBody);
+
+        [$goneStatus, ] = $this->curlGet('tenantstudentcore/tenantStudentCoreEdit/' . $studentId);
+        $this->assertSame(404, $goneStatus);
+    }
+
+    public function testTenantStudentCoreDeleteRefusesRealStudentsWithAnExistingLogin(): void
+    {
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        // Student id 1 (tenant 25) is a real migrated student with a real
+        // login -- this route must refuse to delete it rather than orphan
+        // the login or silently skip the cascade.
+        [$deleteStatus, $deleteBody] = $this->curlGet('tenantstudentcore/tenantStudentCoreDelete/1');
+        $this->assertSame(404, $deleteStatus);
+
+        $pdo = new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', '');
+        $stillThere = (int) $pdo->query('SELECT COUNT(*) FROM students WHERE id = 1 AND tenant_id = 25')->fetchColumn();
+        $this->assertSame(1, $stillThere, 'a real student with a login must survive an attempted delete through this route');
+    }
+
     private function curlPost(string $path, array $fields): array
     {
         $ch = curl_init(self::BASE_URL . $path);
