@@ -242,4 +242,17 @@ class Feediscount extends Admin_Controller
         }
     }
 
+    public function tenantFeeDiscountList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $feeDiscountList = $this->feediscount_model->getTenantScopedFeeDiscountList((int) $tenantId);
+        $this->load->view('admin/feediscount/tenant_fee_discount_list', ['feeDiscountList' => $feeDiscountList]);
+    }
+
 }

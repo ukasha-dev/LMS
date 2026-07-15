@@ -328,6 +328,61 @@ final class AdminControllerTenantGateTest extends TestCase
         $this->assertSame(404, $usersIndexStatus);
     }
 
+    public function testTenantScopedSessionReachesTenMoreAllowlistedRoutesAndNothingElse(): void
+    {
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        [$sessionStatus, $sessionBody] = $this->curlGet('sessions/tenantSessionList');
+        $this->assertSame(200, $sessionStatus);
+        $this->assertStringContainsString('Tenant Session List', $sessionBody);
+
+        [$feeDiscountStatus, $feeDiscountBody] = $this->curlGet('admin/feediscount/tenantFeeDiscountList');
+        $this->assertSame(200, $feeDiscountStatus);
+        $this->assertStringContainsString('Tenant Fee Discount List', $feeDiscountBody);
+
+        [$feeSessionGroupStatus, $feeSessionGroupBody] = $this->curlGet('admin/feemaster/tenantFeeSessionGroupList');
+        $this->assertSame(200, $feeSessionGroupStatus);
+        $this->assertStringContainsString('Tenant Fee Session Group List', $feeSessionGroupBody);
+
+        [$onlineAdmissionFieldsStatus, $onlineAdmissionFieldsBody] = $this->curlGet('admin/onlineadmission/tenantOnlineAdmissionFieldsList');
+        $this->assertSame(200, $onlineAdmissionFieldsStatus);
+        $this->assertStringContainsString('Tenant Online Admission Fields List', $onlineAdmissionFieldsBody);
+
+        [$resumeSettingsFieldsStatus, $resumeSettingsFieldsBody] = $this->curlGet('admin/resume/tenantResumeSettingsFieldsList');
+        $this->assertSame(200, $resumeSettingsFieldsStatus);
+        $this->assertStringContainsString('Tenant Resume Settings Fields List', $resumeSettingsFieldsBody);
+
+        [$notificationSettingStatus, $notificationSettingBody] = $this->curlGet('admin/notification/tenantNotificationSettingList');
+        $this->assertSame(200, $notificationSettingStatus);
+        $this->assertStringContainsString('Tenant Notification Setting List', $notificationSettingBody);
+
+        [$batchExamsStatus, $batchExamsBody] = $this->curlGet('admin/examgroup/tenantExamGroupBatchExamsList');
+        $this->assertSame(200, $batchExamsStatus);
+        $this->assertStringContainsString('Tenant Exam Group Batch Exams List', $batchExamsBody);
+
+        [$batchExamSubjectsStatus, $batchExamSubjectsBody] = $this->curlGet('admin/examgroup/tenantExamGroupBatchExamSubjectsList');
+        $this->assertSame(200, $batchExamSubjectsStatus);
+        $this->assertStringContainsString('Tenant Exam Group Batch Exam Subjects List', $batchExamSubjectsBody);
+
+        [$batchExamStudentsStatus, $batchExamStudentsBody] = $this->curlGet('admin/examgroup/tenantExamGroupBatchExamStudentsList');
+        $this->assertSame(200, $batchExamStudentsStatus);
+        $this->assertStringContainsString('Tenant Exam Group Batch Exam Students List', $batchExamStudentsBody);
+
+        [$feeGroupFeetypeStatus, $feeGroupFeetypeBody] = $this->curlGet('admin/feegroup/tenantFeeGroupFeetypeList');
+        $this->assertSame(200, $feeGroupFeetypeStatus);
+        $this->assertStringContainsString('Tenant Fee Group Feetype List', $feeGroupFeetypeBody);
+
+        [$sessionsIndexStatus, ] = $this->curlGet('sessions/index');
+        $this->assertSame(404, $sessionsIndexStatus);
+
+        [$feediscountIndexStatus, ] = $this->curlGet('admin/feediscount/index');
+        $this->assertSame(404, $feediscountIndexStatus);
+
+        [$examgroupBatchDeleteStatus, ] = $this->curlGet('admin/examgroup/delete/1');
+        $this->assertSame(404, $examgroupBatchDeleteStatus);
+    }
+
     private function curlPostPilotLogin(): array
     {
         $ch = curl_init(self::BASE_URL . 'pilotlogin/login');

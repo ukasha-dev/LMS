@@ -997,4 +997,43 @@ class Examgroup extends Admin_Controller
         $this->load->view('admin/examgroup/tenant_exam_results_list', ['examResultsList' => $examResultsList]);
     }
 
+    public function tenantExamGroupBatchExamsList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $batchExamsList = $this->examgroup_model->getTenantScopedBatchExamsList((int) $tenantId);
+        $this->load->view('admin/examgroup/tenant_batch_exams_list', ['batchExamsList' => $batchExamsList]);
+    }
+
+    public function tenantExamGroupBatchExamSubjectsList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $batchExamSubjectsList = $this->examgroup_model->getTenantScopedBatchExamSubjectsList((int) $tenantId);
+        $this->load->view('admin/examgroup/tenant_batch_exam_subjects_list', ['batchExamSubjectsList' => $batchExamSubjectsList]);
+    }
+
+    public function tenantExamGroupBatchExamStudentsList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $batchExamStudentsList = $this->examgroup_model->getTenantScopedBatchExamStudentsList((int) $tenantId);
+        $this->load->view('admin/examgroup/tenant_batch_exam_students_list', ['batchExamStudentsList' => $batchExamStudentsList]);
+    }
+
 }

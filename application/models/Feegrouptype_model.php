@@ -234,4 +234,9 @@ class Feegrouptype_model extends MY_Model
         }
     }
 
+    public function getTenantScopedFeeGroupTypeList($tenantId)
+    {
+        return $this->db->where('tenant_id', $tenantId)->get('fee_groups_feetype')->result_array();
+    }
+
 }

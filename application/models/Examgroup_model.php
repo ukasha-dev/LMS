@@ -357,4 +357,19 @@ class Examgroup_model extends MY_Model
         return $this->db->where('tenant_id', $tenantId)->get('exam_group_exam_results')->result_array();
     }
 
+    public function getTenantScopedBatchExamsList($tenantId)
+    {
+        return $this->db->where('tenant_id', $tenantId)->get('exam_group_class_batch_exams')->result_array();
+    }
+
+    public function getTenantScopedBatchExamSubjectsList($tenantId)
+    {
+        return $this->db->where('tenant_id', $tenantId)->get('exam_group_class_batch_exam_subjects')->result_array();
+    }
+
+    public function getTenantScopedBatchExamStudentsList($tenantId)
+    {
+        return $this->db->where('tenant_id', $tenantId)->get('exam_group_class_batch_exam_students')->result_array();
+    }
+
 }

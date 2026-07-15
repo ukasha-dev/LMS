@@ -100,4 +100,17 @@ class Sessions extends Admin_Controller
         }
     }
 
+    public function tenantSessionList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $sessionList = $this->session_model->getTenantScopedSessionList((int) $tenantId);
+        $this->load->view('session/tenant_session_list', ['sessionList' => $sessionList]);
+    }
+
 }

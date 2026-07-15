@@ -114,4 +114,9 @@ class Session_model extends MY_Model {
         }
     }
 
+    public function getTenantScopedSessionList($tenantId)
+    {
+        return $this->db->where('tenant_id', $tenantId)->get('sessions')->result_array();
+    }
+
 }

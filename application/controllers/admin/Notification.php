@@ -698,7 +698,17 @@ class Notification extends Admin_Controller
         $this->load->view('layout/footer', $data);
     }
 
+    public function tenantNotificationSettingList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
 
+            return;
+        }
 
+        $notificationSettingList = $this->notificationsetting_model->getGlobalNotificationSettingList();
+        $this->load->view('admin/notification/tenant_notification_setting_list', ['notificationSettingList' => $notificationSettingList]);
+    }
 
 }

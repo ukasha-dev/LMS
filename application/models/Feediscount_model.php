@@ -230,4 +230,9 @@ class Feediscount_model extends MY_Model
         return $query->result();
     }
 
+    public function getTenantScopedFeeDiscountList($tenantId)
+    {
+        return $this->db->where('tenant_id', $tenantId)->get('fees_discounts')->result_array();
+    }
+
 }

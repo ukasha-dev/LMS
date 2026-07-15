@@ -301,6 +301,19 @@ class Feemaster extends Admin_Controller
         $this->load->view('layout/header', $data);
         $this->load->view('admin/feemaster/assign', $data);
         $this->load->view('layout/footer', $data);
-    }    
+    }
+
+    public function tenantFeeSessionGroupList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $feeSessionGroupList = $this->feesessiongroup_model->getTenantScopedFeeSessionGroupList((int) $tenantId);
+        $this->load->view('admin/feemaster/tenant_fee_session_group_list', ['feeSessionGroupList' => $feeSessionGroupList]);
+    }
 
 }

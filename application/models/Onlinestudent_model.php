@@ -582,4 +582,13 @@ class Onlinestudent_model extends MY_Model
             return 0;
         }
     }
+
+    public function getGlobalOnlineAdmissionFieldsList()
+    {
+        // online_admission_fields is a GLOBAL reference table (no tenant_id column,
+        // confirmed live -- same shape as permission_group/currencies/languages).
+        // Not filtered by tenant; the controller's own session guard still requires
+        // an authenticated tenant session to view it.
+        return $this->db->get('online_admission_fields')->result_array();
+    }
 }

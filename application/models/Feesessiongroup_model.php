@@ -357,10 +357,9 @@ class Feesessiongroup_model extends MY_Model
         }
     }
 
-
-
-
-
-     
+    public function getTenantScopedFeeSessionGroupList($tenantId)
+    {
+        return $this->db->where('tenant_id', $tenantId)->get('fee_session_groups')->result_array();
+    }
 
 }

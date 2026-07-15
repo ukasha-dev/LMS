@@ -185,8 +185,21 @@ class Onlineadmission extends Admin_Controller
 
     public function download($id)
     {
-        $settinglist = $this->setting_model->get($id);         
+        $settinglist = $this->setting_model->get($id);
         $this->media_storage->filedownload($settinglist['online_admission_application_form'], "./uploads/admission_form");
+    }
+
+    public function tenantOnlineAdmissionFieldsList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $onlineAdmissionFieldsList = $this->onlinestudent_model->getGlobalOnlineAdmissionFieldsList();
+        $this->load->view('admin/onlineadmission/tenant_online_admission_fields_list', ['onlineAdmissionFieldsList' => $onlineAdmissionFieldsList]);
     }
 
 }

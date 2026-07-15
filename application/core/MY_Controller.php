@@ -64,7 +64,6 @@ class Admin_Controller extends MY_Controller
             $allowedTenantRoutes = [
                 'staff' => ['tenantstafflist'],
                 'feesforward' => ['tenantfeeslist'],
-                'examgroup' => ['tenantexamresultslist'],
                 'stuattendence' => ['tenantattendancelist'],
                 'leaverequest' => ['tenantleaverequestlist'],
                 'classes' => ['tenantclasslist'],
@@ -78,9 +77,16 @@ class Admin_Controller extends MY_Controller
                 'currency' => ['tenantcurrencylist'],
                 'language' => ['tenantlanguagelist'],
                 'feetype' => ['tenantfeetypelist'],
-                'feegroup' => ['tenantfeegrouplist'],
                 'student' => ['tenantstudentlist'],
                 'users' => ['tenantuserslist'],
+                'sessions' => ['tenantsessionlist'],
+                'feediscount' => ['tenantfeediscountlist'],
+                'feemaster' => ['tenantfeesessiongrouplist'],
+                'onlineadmission' => ['tenantonlineadmissionfieldslist'],
+                'resume' => ['tenantresumesettingsfieldslist'],
+                'notification' => ['tenantnotificationsettinglist'],
+                'examgroup' => ['tenantexamresultslist', 'tenantexamgroupbatchexamslist', 'tenantexamgroupbatchexamsubjectslist', 'tenantexamgroupbatchexamstudentslist'],
+                'feegroup' => ['tenantfeegrouplist', 'tenantfeegroupfeetypelist'],
             ];
             if (!isset($allowedTenantRoutes[$activeController]) || !in_array($activeMethod, $allowedTenantRoutes[$activeController], true)) {
                 show_404();

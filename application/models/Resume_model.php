@@ -365,4 +365,13 @@ class Resume_model extends MY_Model
         return $query->result();
     }
 
+    public function getGlobalResumeSettingsFieldsList()
+    {
+        // resume_settings_fields is a GLOBAL reference table (no tenant_id column,
+        // confirmed live -- same shape as permission_group/currencies/languages).
+        // Not filtered by tenant; the controller's own session guard still requires
+        // an authenticated tenant session to view it.
+        return $this->db->get('resume_settings_fields')->result_array();
+    }
+
 }

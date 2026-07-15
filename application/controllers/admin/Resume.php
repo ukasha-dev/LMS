@@ -411,7 +411,18 @@ class Resume extends Admin_Controller
         echo json_encode($array);
     }
 
+    public function tenantResumeSettingsFieldsList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
 
+            return;
+        }
+
+        $resumeSettingsFieldsList = $this->resume_model->getGlobalResumeSettingsFieldsList();
+        $this->load->view('admin/resume/tenant_resume_settings_fields_list', ['resumeSettingsFieldsList' => $resumeSettingsFieldsList]);
+    }
 
 
 

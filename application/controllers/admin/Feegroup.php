@@ -102,4 +102,17 @@ class FeeGroup extends Admin_Controller
         $this->load->view('admin/feegroup/tenant_feegroup_list', ['feegroupList' => $feegroupList]);
     }
 
+    public function tenantFeeGroupFeetypeList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $feeGroupFeetypeList = $this->feegrouptype_model->getTenantScopedFeeGroupTypeList((int) $tenantId);
+        $this->load->view('admin/feegroup/tenant_feegroup_feetype_list', ['feeGroupFeetypeList' => $feeGroupFeetypeList]);
+    }
+
 }
