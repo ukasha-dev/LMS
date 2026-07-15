@@ -950,6 +950,139 @@ final class AdminControllerTenantGateTest extends TestCase
         );
     }
 
+    public function testTenantExamCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        // session_id=1 is tenant 25's real "2016-17" session row -- exams
+        // is the first MEDIUM-tier table with a genuine foreign key
+        // (sesion_id), unlike every LOW-tier table before it.
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/exam/tenantExamCreate',
+            ['name' => 'Isolation Test Exam', 'note' => 'x', 'session_id' => '1'],
+            'Exam created with id',
+            'admin/exam/tenantExamEdit/',
+            'admin/exam/tenantExamDelete/',
+            'Isolation Test Exam',
+            'Exam deleted.',
+            'No matching exam found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantExamCreateRejectsAnotherTenantsSessionId(): void
+    {
+        // The property this test exists for: a bare insert with a
+        // client-posted session_id would let tenant 25 attach an exam to
+        // tenant 26's session row just by guessing/tampering with the id.
+        // session_id=16 is tenant 26's real "2016-17" session -- a
+        // plausible id to guess (small, sequential, same label).
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        [$createStatus, $createBody] = $this->curlPost('admin/exam/tenantExamCreate', [
+            'name' => 'Should Never Be Created',
+            'note' => 'x',
+            'session_id' => '16',
+        ]);
+        $this->assertSame(404, $createStatus, 'creating an exam against another tenant\'s session id must be rejected, not silently created');
+
+        $stillEmpty = (int) (new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', ''))
+            ->query("SELECT COUNT(*) FROM exams WHERE tenant_id = 25 AND name = 'Should Never Be Created'")
+            ->fetchColumn();
+        $this->assertSame(0, $stillEmpty, 'no exam row must have been created when the session ownership check fails');
+    }
+
+    public function testTenantHostelroomCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        // hostel/room_types have no pre-existing data (they're LOW-tier
+        // tables, only ever populated transiently by their own tests) --
+        // create real owning fixtures for tenant 25 first.
+        [, $hostelBody] = $this->curlPost('admin/hostel/tenantHostelCreate', [
+            'hostel_name' => 'Isolation Fixture Hostel', 'type' => 'boys',
+        ]);
+        preg_match('/Hostel created with id (\d+)/', $hostelBody, $hm);
+        $hostelId = (int) $hm[1];
+
+        [, $roomTypeBody] = $this->curlPost('admin/roomtype/tenantRoomtypeCreate', [
+            'room_type' => 'Isolation Fixture Room Type',
+        ]);
+        preg_match('/Room type created with id (\d+)/', $roomTypeBody, $rm);
+        $roomTypeId = (int) $rm[1];
+
+        try {
+            $this->verifyTenantCrudCrossTenantIsolation(
+                'admin/hostelroom/tenantHostelroomCreate',
+                [
+                    'hostel_id' => (string) $hostelId,
+                    'room_type_id' => (string) $roomTypeId,
+                    'room_no' => 'Isolation Test Room',
+                    'no_of_bed' => '2',
+                    'cost_per_bed' => '100',
+                ],
+                'Hostel room created with id',
+                'admin/hostelroom/tenantHostelroomEdit/',
+                'admin/hostelroom/tenantHostelroomDelete/',
+                'Isolation Test Room',
+                'Hostel room deleted.',
+                'No matching hostel room found for this tenant.',
+                26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+            );
+        } finally {
+            [$loginStatus, ] = $this->curlPostPilotLogin();
+            $this->curlGet("admin/hostel/tenantHostelDelete/{$hostelId}");
+            $this->curlGet("admin/roomtype/tenantRoomtypeDelete/{$roomTypeId}");
+        }
+    }
+
+    public function testTenantHostelroomCreateRejectsAnotherTenantsHostelId(): void
+    {
+        // Same property as the exam test above, for hostel_rooms' two
+        // foreign keys. Create real fixtures owned by tenant 26, then
+        // prove tenant 25 cannot reference them.
+        $otherCookieJar = tempnam(sys_get_temp_dir(), 'admgate_test_other_');
+        $realCookieJar = $this->cookieJar;
+        $this->cookieJar = $otherCookieJar;
+        [, $otherHostelBody] = $this->curlPostPilotLoginAs(26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!');
+        [, $otherHostelBody] = $this->curlPost('admin/hostel/tenantHostelCreate', [
+            'hostel_name' => 'Tenant26 Fixture Hostel', 'type' => 'girls',
+        ]);
+        preg_match('/Hostel created with id (\d+)/', $otherHostelBody, $hm);
+        $otherTenantHostelId = (int) $hm[1];
+        [, $otherRoomTypeBody] = $this->curlPost('admin/roomtype/tenantRoomtypeCreate', [
+            'room_type' => 'Tenant26 Fixture Room Type',
+        ]);
+        preg_match('/Room type created with id (\d+)/', $otherRoomTypeBody, $rm);
+        $otherTenantRoomTypeId = (int) $rm[1];
+
+        try {
+            $this->cookieJar = $realCookieJar;
+            [$loginStatus, ] = $this->curlPostPilotLogin();
+            $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+            [$createStatus, $createBody] = $this->curlPost('admin/hostelroom/tenantHostelroomCreate', [
+                'hostel_id' => (string) $otherTenantHostelId,
+                'room_type_id' => (string) $otherTenantRoomTypeId,
+                'room_no' => 'Should Never Be Created',
+                'no_of_bed' => '2',
+                'cost_per_bed' => '100',
+            ]);
+            $this->assertSame(404, $createStatus, 'creating a hostel room against another tenant\'s hostel/room type id must be rejected');
+
+            $stillEmpty = (int) (new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', ''))
+                ->query("SELECT COUNT(*) FROM hostel_rooms WHERE tenant_id = 25 AND room_no = 'Should Never Be Created'")
+                ->fetchColumn();
+            $this->assertSame(0, $stillEmpty, 'no hostel_rooms row must have been created when the FK ownership check fails');
+        } finally {
+            $this->cookieJar = $otherCookieJar;
+            $this->curlGet("admin/hostel/tenantHostelDelete/{$otherTenantHostelId}");
+            $this->curlGet("admin/roomtype/tenantRoomtypeDelete/{$otherTenantRoomTypeId}");
+            $this->cookieJar = $realCookieJar;
+            @unlink($otherCookieJar);
+        }
+    }
+
     private function curlPost(string $path, array $fields): array
     {
         $ch = curl_init(self::BASE_URL . $path);

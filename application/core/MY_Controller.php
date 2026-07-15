@@ -105,6 +105,8 @@ class Admin_Controller extends MY_Controller
                 'visitorspurpose' => ['tenantvisitorspurposelist', 'tenantvisitorspurposecreate', 'tenantvisitorspurposeedit', 'tenantvisitorspurposedelete'],
                 'generalcall' => ['tenantgeneralcalllist', 'tenantgeneralcallcreate', 'tenantgeneralcalledit', 'tenantgeneralcalldelete'],
                 'category' => ['tenantcategorylist', 'tenantcategorycreate', 'tenantcategoryedit', 'tenantcategorydelete'],
+                'exam' => ['tenantexamlist', 'tenantexamcreate', 'tenantexamedit', 'tenantexamdelete'],
+                'hostelroom' => ['tenanthostelroomlist', 'tenanthostelroomcreate', 'tenanthostelroomedit', 'tenanthostelroomdelete'],
             ];
             if (!isset($allowedTenantRoutes[$activeController]) || !in_array($activeMethod, $allowedTenantRoutes[$activeController], true)) {
                 show_404();

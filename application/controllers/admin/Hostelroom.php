@@ -131,6 +131,129 @@ class Hostelroom extends Admin_Controller
         redirect('admin/hostelroom/index');
     }
 
+    public function tenantHostelroomList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $hostelroomList = $this->hostelroom_model->tenantScopedList('hostel_rooms', (int) $tenantId);
+        $this->load->view('admin/hostelroom/tenant_hostelroom_list', ['hostelroomList' => $hostelroomList]);
+    }
+
+    // hostel_rooms has two real foreign keys (hostel_id, room_type_id).
+    // Both are verified to belong to this tenant via tenantScopedFind on
+    // their owning tables BEFORE being used -- a bare insert with a
+    // client-posted id would let a tenant-scoped session attach a room to
+    // ANOTHER tenant's hostel/room type by guessing or tampering with the
+    // id. Same discipline as Exam's sesion_id check above.
+
+    public function tenantHostelroomCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('hostel_id', 'Hostel', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('room_type_id', 'Room Type', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('room_no', 'Room No', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('no_of_bed', 'No Of Bed', 'trim|required|numeric|xss_clean');
+        $this->form_validation->set_rules('cost_per_bed', 'Cost Per Bed', 'trim|required|numeric|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $hostelId   = (int) $this->input->post('hostel_id');
+            $roomTypeId = (int) $this->input->post('room_type_id');
+            if (!$this->hostel_model->tenantScopedFind('hostel', (int) $tenantId, $hostelId)
+                || !$this->roomtype_model->tenantScopedFind('room_types', (int) $tenantId, $roomTypeId)) {
+                show_404();
+
+                return;
+            }
+
+            $newId = $this->hostelroom_model->tenantScopedInsert('hostel_rooms', (int) $tenantId, [
+                'hostel_id'    => $hostelId,
+                'room_type_id' => $roomTypeId,
+                'room_no'      => $this->input->post('room_no'),
+                'no_of_bed'    => $this->input->post('no_of_bed'),
+                'cost_per_bed' => $this->input->post('cost_per_bed'),
+                'description'  => $this->input->post('description'),
+            ]);
+            $this->load->view('admin/hostelroom/tenant_hostelroom_create', ['created' => true, 'id' => $newId]);
+
+            return;
+        }
+
+        $this->load->view('admin/hostelroom/tenant_hostelroom_create', ['created' => false]);
+    }
+
+    public function tenantHostelroomEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $hostelroom = $this->hostelroom_model->tenantScopedFind('hostel_rooms', (int) $tenantId, (int) $id);
+        if (!$hostelroom) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('hostel_id', 'Hostel', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('room_type_id', 'Room Type', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('room_no', 'Room No', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('no_of_bed', 'No Of Bed', 'trim|required|numeric|xss_clean');
+        $this->form_validation->set_rules('cost_per_bed', 'Cost Per Bed', 'trim|required|numeric|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $hostelId   = (int) $this->input->post('hostel_id');
+            $roomTypeId = (int) $this->input->post('room_type_id');
+            if (!$this->hostel_model->tenantScopedFind('hostel', (int) $tenantId, $hostelId)
+                || !$this->roomtype_model->tenantScopedFind('room_types', (int) $tenantId, $roomTypeId)) {
+                show_404();
+
+                return;
+            }
+
+            $this->hostelroom_model->tenantScopedUpdate('hostel_rooms', (int) $tenantId, (int) $id, [
+                'hostel_id'    => $hostelId,
+                'room_type_id' => $roomTypeId,
+                'room_no'      => $this->input->post('room_no'),
+                'no_of_bed'    => $this->input->post('no_of_bed'),
+                'cost_per_bed' => $this->input->post('cost_per_bed'),
+                'description'  => $this->input->post('description'),
+            ]);
+            $hostelroom = $this->hostelroom_model->tenantScopedFind('hostel_rooms', (int) $tenantId, (int) $id);
+            $this->load->view('admin/hostelroom/tenant_hostelroom_edit', ['updated' => true, 'hostelroom' => $hostelroom]);
+
+            return;
+        }
+
+        $this->load->view('admin/hostelroom/tenant_hostelroom_edit', ['updated' => false, 'hostelroom' => $hostelroom]);
+    }
+
+    public function tenantHostelroomDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $deleted = $this->hostelroom_model->tenantScopedDelete('hostel_rooms', (int) $tenantId, (int) $id);
+        $this->load->view('admin/hostelroom/tenant_hostelroom_delete', ['deleted' => $deleted]);
+    }
+
     public function studenthosteldetails()
     {
         $this->session->set_userdata('top_menu', 'Reports');
