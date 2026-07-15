@@ -126,6 +126,89 @@ class Route extends Admin_Controller
         $this->load->view("layout/footer", $data);
     }
 
+    public function tenantRouteList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $routeList = $this->route_model->tenantScopedList('transport_route', (int) $tenantId);
+        $this->load->view('admin/route/tenant_route_list', ['routeList' => $routeList]);
+    }
+
+    public function tenantRouteCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('route_title', 'Route Title', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $newId = $this->route_model->tenantScopedInsert('transport_route', (int) $tenantId, [
+                'route_title'   => $this->input->post('route_title'),
+                'no_of_vehicle' => $this->input->post('no_of_vehicle'),
+                'is_active'     => 'yes',
+            ]);
+            $this->load->view('admin/route/tenant_route_create', ['created' => true, 'id' => $newId]);
+
+            return;
+        }
+
+        $this->load->view('admin/route/tenant_route_create', ['created' => false]);
+    }
+
+    public function tenantRouteEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $route = $this->route_model->tenantScopedFind('transport_route', (int) $tenantId, (int) $id);
+        if (!$route) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('route_title', 'Route Title', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $this->route_model->tenantScopedUpdate('transport_route', (int) $tenantId, (int) $id, [
+                'route_title'   => $this->input->post('route_title'),
+                'no_of_vehicle' => $this->input->post('no_of_vehicle'),
+            ]);
+            $route = $this->route_model->tenantScopedFind('transport_route', (int) $tenantId, (int) $id);
+            $this->load->view('admin/route/tenant_route_edit', ['updated' => true, 'route' => $route]);
+
+            return;
+        }
+
+        $this->load->view('admin/route/tenant_route_edit', ['updated' => false, 'route' => $route]);
+    }
+
+    public function tenantRouteDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $deleted = $this->route_model->tenantScopedDelete('transport_route', (int) $tenantId, (int) $id);
+        $this->load->view('admin/route/tenant_route_delete', ['deleted' => $deleted]);
+    }
+
     public function pickup_point()
     {
         $this->session->set_userdata('top_menu', 'Transport');

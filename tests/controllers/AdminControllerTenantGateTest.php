@@ -671,6 +671,156 @@ final class AdminControllerTenantGateTest extends TestCase
         );
     }
 
+    public function testTenantRoomtypeCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/roomtype/tenantRoomtypeCreate',
+            ['room_type' => 'Isolation Test Room Type'],
+            'Room type created with id',
+            'admin/roomtype/tenantRoomtypeEdit/',
+            'admin/roomtype/tenantRoomtypeDelete/',
+            'Isolation Test Room Type',
+            'Room type deleted.',
+            'No matching room type found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantHostelCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/hostel/tenantHostelCreate',
+            ['hostel_name' => 'Isolation Test Hostel', 'type' => 'boys'],
+            'Hostel created with id',
+            'admin/hostel/tenantHostelEdit/',
+            'admin/hostel/tenantHostelDelete/',
+            'Isolation Test Hostel',
+            'Hostel deleted.',
+            'No matching hostel found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantItemcategoryCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/itemcategory/tenantItemcategoryCreate',
+            ['item_category' => 'Isolation Test Item Category', 'description' => 'x'],
+            'Item category created with id',
+            'admin/itemcategory/tenantItemcategoryEdit/',
+            'admin/itemcategory/tenantItemcategoryDelete/',
+            'Isolation Test Item Category',
+            'Item category deleted.',
+            'No matching item category found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantItemstoreCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/itemstore/tenantItemstoreCreate',
+            ['name' => 'Isolation Test Item Store', 'code' => 'IIS101', 'description' => 'x'],
+            'Item store created with id',
+            'admin/itemstore/tenantItemstoreEdit/',
+            'admin/itemstore/tenantItemstoreDelete/',
+            'Isolation Test Item Store',
+            'Item store deleted.',
+            'No matching item store found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantItemsupplierCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/itemsupplier/tenantItemsupplierCreate',
+            ['name' => 'Isolation Test Item Supplier', 'phone' => '1', 'email' => 'x@x.com', 'address' => 'x', 'contact_person_name' => 'x', 'contact_person_phone' => '1', 'contact_person_email' => 'x@x.com', 'description' => 'x'],
+            'Item supplier created with id',
+            'admin/itemsupplier/tenantItemsupplierEdit/',
+            'admin/itemsupplier/tenantItemsupplierDelete/',
+            'Isolation Test Item Supplier',
+            'Item supplier deleted.',
+            'No matching item supplier found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantSchoolhouseCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/schoolhouse/tenantSchoolhouseCreate',
+            ['house_name' => 'Isolation Test School House', 'description' => 'x'],
+            'School house created with id',
+            'admin/schoolhouse/tenantSchoolhouseEdit/',
+            'admin/schoolhouse/tenantSchoolhouseDelete/',
+            'Isolation Test School House',
+            'School house deleted.',
+            'No matching school house found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantSourceCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/source/tenantSourceCreate',
+            ['source' => 'Isolation Test Source', 'description' => 'x'],
+            'Source created with id',
+            'admin/source/tenantSourceEdit/',
+            'admin/source/tenantSourceDelete/',
+            'Isolation Test Source',
+            'Source deleted.',
+            'No matching source found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantRouteCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/route/tenantRouteCreate',
+            ['route_title' => 'Isolation Test Route'],
+            'Route created with id',
+            'admin/route/tenantRouteEdit/',
+            'admin/route/tenantRouteDelete/',
+            'Isolation Test Route',
+            'Route deleted.',
+            'No matching route found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantComplainttypeCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/complainttype/tenantComplainttypeCreate',
+            ['complaint_type' => 'Isolation Test Complaint Type', 'description' => 'x'],
+            'Complaint type created with id',
+            'admin/complainttype/tenantComplainttypeEdit/',
+            'admin/complainttype/tenantComplainttypeDelete/',
+            'Isolation Test Complaint Type',
+            'Complaint type deleted.',
+            'No matching complaint type found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantHolidayTypeCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/holiday/tenantHolidayTypeCreate',
+            ['type' => 'Isolation Test Holiday Type'],
+            'Holiday type created with id',
+            'admin/holiday/tenantHolidayTypeEdit/',
+            'admin/holiday/tenantHolidayTypeDelete/',
+            'Isolation Test Holiday Type',
+            'Holiday type deleted.',
+            'No matching holiday type found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
     private function curlPost(string $path, array $fields): array
     {
         $ch = curl_init(self::BASE_URL . $path);

@@ -74,4 +74,86 @@ class Complainttype extends Admin_Controller
         redirect('admin/complainttype');
     }
 
+    public function tenantComplainttypeList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $complainttypeList = $this->ComplaintType_model->tenantScopedList('complaint_type', (int) $tenantId);
+        $this->load->view('admin/frontoffice/tenant_complainttype_list', ['complainttypeList' => $complainttypeList]);
+    }
+
+    public function tenantComplainttypeCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('complaint_type', 'Complaint Type', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $newId = $this->ComplaintType_model->tenantScopedInsert('complaint_type', (int) $tenantId, [
+                'complaint_type' => $this->input->post('complaint_type'),
+                'description'    => $this->input->post('description'),
+            ]);
+            $this->load->view('admin/frontoffice/tenant_complainttype_create', ['created' => true, 'id' => $newId]);
+
+            return;
+        }
+
+        $this->load->view('admin/frontoffice/tenant_complainttype_create', ['created' => false]);
+    }
+
+    public function tenantComplainttypeEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $complainttype = $this->ComplaintType_model->tenantScopedFind('complaint_type', (int) $tenantId, (int) $id);
+        if (!$complainttype) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('complaint_type', 'Complaint Type', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $this->ComplaintType_model->tenantScopedUpdate('complaint_type', (int) $tenantId, (int) $id, [
+                'complaint_type' => $this->input->post('complaint_type'),
+                'description'    => $this->input->post('description'),
+            ]);
+            $complainttype = $this->ComplaintType_model->tenantScopedFind('complaint_type', (int) $tenantId, (int) $id);
+            $this->load->view('admin/frontoffice/tenant_complainttype_edit', ['updated' => true, 'complainttype' => $complainttype]);
+
+            return;
+        }
+
+        $this->load->view('admin/frontoffice/tenant_complainttype_edit', ['updated' => false, 'complainttype' => $complainttype]);
+    }
+
+    public function tenantComplainttypeDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $deleted = $this->ComplaintType_model->tenantScopedDelete('complaint_type', (int) $tenantId, (int) $id);
+        $this->load->view('admin/frontoffice/tenant_complainttype_delete', ['deleted' => $deleted]);
+    }
+
 }

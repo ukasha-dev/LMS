@@ -99,4 +99,88 @@ class Itemstore extends Admin_Controller
         }
     }
 
+    public function tenantItemstoreList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $itemstoreList = $this->itemstore_model->tenantScopedList('item_store', (int) $tenantId);
+        $this->load->view('admin/itemstore/tenant_itemstore_list', ['itemstoreList' => $itemstoreList]);
+    }
+
+    public function tenantItemstoreCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('name', 'Name', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $newId = $this->itemstore_model->tenantScopedInsert('item_store', (int) $tenantId, [
+                'item_store'  => $this->input->post('name'),
+                'code'        => $this->input->post('code'),
+                'description' => $this->input->post('description'),
+            ]);
+            $this->load->view('admin/itemstore/tenant_itemstore_create', ['created' => true, 'id' => $newId]);
+
+            return;
+        }
+
+        $this->load->view('admin/itemstore/tenant_itemstore_create', ['created' => false]);
+    }
+
+    public function tenantItemstoreEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $itemstore = $this->itemstore_model->tenantScopedFind('item_store', (int) $tenantId, (int) $id);
+        if (!$itemstore) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('name', 'Name', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $this->itemstore_model->tenantScopedUpdate('item_store', (int) $tenantId, (int) $id, [
+                'item_store'  => $this->input->post('name'),
+                'code'        => $this->input->post('code'),
+                'description' => $this->input->post('description'),
+            ]);
+            $itemstore = $this->itemstore_model->tenantScopedFind('item_store', (int) $tenantId, (int) $id);
+            $this->load->view('admin/itemstore/tenant_itemstore_edit', ['updated' => true, 'itemstore' => $itemstore]);
+
+            return;
+        }
+
+        $this->load->view('admin/itemstore/tenant_itemstore_edit', ['updated' => false, 'itemstore' => $itemstore]);
+    }
+
+    public function tenantItemstoreDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $deleted = $this->itemstore_model->tenantScopedDelete('item_store', (int) $tenantId, (int) $id);
+        $this->load->view('admin/itemstore/tenant_itemstore_delete', ['deleted' => $deleted]);
+    }
+
 }

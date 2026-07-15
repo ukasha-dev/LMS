@@ -92,4 +92,86 @@ class Roomtype extends Admin_Controller
         redirect('admin/roomtype/index');
     }
 
+    public function tenantRoomtypeList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $roomtypeList = $this->roomtype_model->tenantScopedList('room_types', (int) $tenantId);
+        $this->load->view('admin/roomtype/tenant_roomtype_list', ['roomtypeList' => $roomtypeList]);
+    }
+
+    public function tenantRoomtypeCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('room_type', 'Room Type', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $newId = $this->roomtype_model->tenantScopedInsert('room_types', (int) $tenantId, [
+                'room_type'   => $this->input->post('room_type'),
+                'description' => $this->input->post('description'),
+            ]);
+            $this->load->view('admin/roomtype/tenant_roomtype_create', ['created' => true, 'id' => $newId]);
+
+            return;
+        }
+
+        $this->load->view('admin/roomtype/tenant_roomtype_create', ['created' => false]);
+    }
+
+    public function tenantRoomtypeEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $roomtype = $this->roomtype_model->tenantScopedFind('room_types', (int) $tenantId, (int) $id);
+        if (!$roomtype) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('room_type', 'Room Type', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $this->roomtype_model->tenantScopedUpdate('room_types', (int) $tenantId, (int) $id, [
+                'room_type'   => $this->input->post('room_type'),
+                'description' => $this->input->post('description'),
+            ]);
+            $roomtype = $this->roomtype_model->tenantScopedFind('room_types', (int) $tenantId, (int) $id);
+            $this->load->view('admin/roomtype/tenant_roomtype_edit', ['updated' => true, 'roomtype' => $roomtype]);
+
+            return;
+        }
+
+        $this->load->view('admin/roomtype/tenant_roomtype_edit', ['updated' => false, 'roomtype' => $roomtype]);
+    }
+
+    public function tenantRoomtypeDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $deleted = $this->roomtype_model->tenantScopedDelete('room_types', (int) $tenantId, (int) $id);
+        $this->load->view('admin/roomtype/tenant_roomtype_delete', ['deleted' => $deleted]);
+    }
+
 }

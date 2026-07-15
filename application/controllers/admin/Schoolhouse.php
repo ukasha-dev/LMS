@@ -97,4 +97,87 @@ class Schoolhouse extends Admin_Controller
         redirect('admin/schoolhouse/');
     }
 
+    public function tenantSchoolhouseList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $schoolhouseList = $this->schoolhouse_model->tenantScopedList('school_houses', (int) $tenantId);
+        $this->load->view('admin/schoolhouse/tenant_schoolhouse_list', ['schoolhouseList' => $schoolhouseList]);
+    }
+
+    public function tenantSchoolhouseCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('house_name', 'House Name', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $newId = $this->schoolhouse_model->tenantScopedInsert('school_houses', (int) $tenantId, [
+                'house_name'  => $this->input->post('house_name'),
+                'description' => $this->input->post('description'),
+                'is_active'   => 'yes',
+            ]);
+            $this->load->view('admin/schoolhouse/tenant_schoolhouse_create', ['created' => true, 'id' => $newId]);
+
+            return;
+        }
+
+        $this->load->view('admin/schoolhouse/tenant_schoolhouse_create', ['created' => false]);
+    }
+
+    public function tenantSchoolhouseEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $schoolhouse = $this->schoolhouse_model->tenantScopedFind('school_houses', (int) $tenantId, (int) $id);
+        if (!$schoolhouse) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('house_name', 'House Name', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $this->schoolhouse_model->tenantScopedUpdate('school_houses', (int) $tenantId, (int) $id, [
+                'house_name'  => $this->input->post('house_name'),
+                'description' => $this->input->post('description'),
+            ]);
+            $schoolhouse = $this->schoolhouse_model->tenantScopedFind('school_houses', (int) $tenantId, (int) $id);
+            $this->load->view('admin/schoolhouse/tenant_schoolhouse_edit', ['updated' => true, 'schoolhouse' => $schoolhouse]);
+
+            return;
+        }
+
+        $this->load->view('admin/schoolhouse/tenant_schoolhouse_edit', ['updated' => false, 'schoolhouse' => $schoolhouse]);
+    }
+
+    public function tenantSchoolhouseDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $deleted = $this->schoolhouse_model->tenantScopedDelete('school_houses', (int) $tenantId, (int) $id);
+        $this->load->view('admin/schoolhouse/tenant_schoolhouse_delete', ['deleted' => $deleted]);
+    }
+
 }

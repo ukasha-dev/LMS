@@ -73,4 +73,86 @@ class Source extends Admin_Controller
         redirect('admin/source');
     }
 
+    public function tenantSourceList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $sourceList = $this->source_model->tenantScopedList('source', (int) $tenantId);
+        $this->load->view('admin/source/tenant_source_list', ['sourceList' => $sourceList]);
+    }
+
+    public function tenantSourceCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('source', 'Source', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $newId = $this->source_model->tenantScopedInsert('source', (int) $tenantId, [
+                'source'      => $this->input->post('source'),
+                'description' => $this->input->post('description'),
+            ]);
+            $this->load->view('admin/source/tenant_source_create', ['created' => true, 'id' => $newId]);
+
+            return;
+        }
+
+        $this->load->view('admin/source/tenant_source_create', ['created' => false]);
+    }
+
+    public function tenantSourceEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $source = $this->source_model->tenantScopedFind('source', (int) $tenantId, (int) $id);
+        if (!$source) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('source', 'Source', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $this->source_model->tenantScopedUpdate('source', (int) $tenantId, (int) $id, [
+                'source'      => $this->input->post('source'),
+                'description' => $this->input->post('description'),
+            ]);
+            $source = $this->source_model->tenantScopedFind('source', (int) $tenantId, (int) $id);
+            $this->load->view('admin/source/tenant_source_edit', ['updated' => true, 'source' => $source]);
+
+            return;
+        }
+
+        $this->load->view('admin/source/tenant_source_edit', ['updated' => false, 'source' => $source]);
+    }
+
+    public function tenantSourceDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $deleted = $this->source_model->tenantScopedDelete('source', (int) $tenantId, (int) $id);
+        $this->load->view('admin/source/tenant_source_delete', ['deleted' => $deleted]);
+    }
+
 }

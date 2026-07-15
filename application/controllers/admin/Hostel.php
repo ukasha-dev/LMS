@@ -105,4 +105,95 @@ class Hostel extends Admin_Controller
         redirect('admin/hostel/index');
     }
 
+    public function tenantHostelList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $hostelList = $this->hostel_model->tenantScopedList('hostel', (int) $tenantId);
+        $this->load->view('admin/hostel/tenant_hostel_list', ['hostelList' => $hostelList]);
+    }
+
+    public function tenantHostelCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('hostel_name', 'Hostel Name', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('type', 'Type', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $newId = $this->hostel_model->tenantScopedInsert('hostel', (int) $tenantId, [
+                'hostel_name' => $this->input->post('hostel_name'),
+                'type'        => $this->input->post('type'),
+                'address'     => $this->input->post('address'),
+                'intake'      => $this->input->post('intake'),
+                'description' => $this->input->post('description'),
+                'is_active'   => 'yes',
+            ]);
+            $this->load->view('admin/hostel/tenant_hostel_create', ['created' => true, 'id' => $newId]);
+
+            return;
+        }
+
+        $this->load->view('admin/hostel/tenant_hostel_create', ['created' => false]);
+    }
+
+    public function tenantHostelEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $hostel = $this->hostel_model->tenantScopedFind('hostel', (int) $tenantId, (int) $id);
+        if (!$hostel) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('hostel_name', 'Hostel Name', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('type', 'Type', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $this->hostel_model->tenantScopedUpdate('hostel', (int) $tenantId, (int) $id, [
+                'hostel_name' => $this->input->post('hostel_name'),
+                'type'        => $this->input->post('type'),
+                'address'     => $this->input->post('address'),
+                'intake'      => $this->input->post('intake'),
+                'description' => $this->input->post('description'),
+            ]);
+            $hostel = $this->hostel_model->tenantScopedFind('hostel', (int) $tenantId, (int) $id);
+            $this->load->view('admin/hostel/tenant_hostel_edit', ['updated' => true, 'hostel' => $hostel]);
+
+            return;
+        }
+
+        $this->load->view('admin/hostel/tenant_hostel_edit', ['updated' => false, 'hostel' => $hostel]);
+    }
+
+    public function tenantHostelDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $deleted = $this->hostel_model->tenantScopedDelete('hostel', (int) $tenantId, (int) $id);
+        $this->load->view('admin/hostel/tenant_hostel_delete', ['deleted' => $deleted]);
+    }
+
 }

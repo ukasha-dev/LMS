@@ -117,4 +117,98 @@ class Itemsupplier extends Admin_Controller
         }
     }
 
+    public function tenantItemsupplierList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $itemsupplierList = $this->itemsupplier_model->tenantScopedList('item_supplier', (int) $tenantId);
+        $this->load->view('admin/itemsupplier/tenant_itemsupplier_list', ['itemsupplierList' => $itemsupplierList]);
+    }
+
+    public function tenantItemsupplierCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('name', 'Name', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $newId = $this->itemsupplier_model->tenantScopedInsert('item_supplier', (int) $tenantId, [
+                'item_supplier'        => $this->input->post('name'),
+                'phone'                => $this->input->post('phone'),
+                'email'                => $this->input->post('email'),
+                'address'              => $this->input->post('address'),
+                'contact_person_name'  => $this->input->post('contact_person_name'),
+                'contact_person_phone' => $this->input->post('contact_person_phone'),
+                'contact_person_email' => $this->input->post('contact_person_email'),
+                'description'          => $this->input->post('description'),
+            ]);
+            $this->load->view('admin/itemsupplier/tenant_itemsupplier_create', ['created' => true, 'id' => $newId]);
+
+            return;
+        }
+
+        $this->load->view('admin/itemsupplier/tenant_itemsupplier_create', ['created' => false]);
+    }
+
+    public function tenantItemsupplierEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $itemsupplier = $this->itemsupplier_model->tenantScopedFind('item_supplier', (int) $tenantId, (int) $id);
+        if (!$itemsupplier) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('name', 'Name', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $this->itemsupplier_model->tenantScopedUpdate('item_supplier', (int) $tenantId, (int) $id, [
+                'item_supplier'        => $this->input->post('name'),
+                'phone'                => $this->input->post('phone'),
+                'email'                => $this->input->post('email'),
+                'address'              => $this->input->post('address'),
+                'contact_person_name'  => $this->input->post('contact_person_name'),
+                'contact_person_phone' => $this->input->post('contact_person_phone'),
+                'contact_person_email' => $this->input->post('contact_person_email'),
+                'description'          => $this->input->post('description'),
+            ]);
+            $itemsupplier = $this->itemsupplier_model->tenantScopedFind('item_supplier', (int) $tenantId, (int) $id);
+            $this->load->view('admin/itemsupplier/tenant_itemsupplier_edit', ['updated' => true, 'itemsupplier' => $itemsupplier]);
+
+            return;
+        }
+
+        $this->load->view('admin/itemsupplier/tenant_itemsupplier_edit', ['updated' => false, 'itemsupplier' => $itemsupplier]);
+    }
+
+    public function tenantItemsupplierDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $deleted = $this->itemsupplier_model->tenantScopedDelete('item_supplier', (int) $tenantId, (int) $id);
+        $this->load->view('admin/itemsupplier/tenant_itemsupplier_delete', ['deleted' => $deleted]);
+    }
+
 }

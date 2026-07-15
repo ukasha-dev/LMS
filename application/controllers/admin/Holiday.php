@@ -182,7 +182,94 @@ class Holiday extends Admin_Controller
         $this->holiday_model->delete_holiday_type($id);
         redirect('admin/holiday/holidaytype');
     }
-    
+
+    // Scoped to the holiday_type lookup table only -- the main holiday
+    // (annual_calendar) records table has a session_id dependency and an
+    // AJAX/JSON-based flow, a meaningfully different shape than the simple
+    // form-based CRUD every other controller in this batch has. Deferred,
+    // same reasoning as excluding Staff.php's file uploads.
+
+    public function tenantHolidayTypeList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $holidayTypeList = $this->holiday_model->tenantScopedList('holiday_type', (int) $tenantId);
+        $this->load->view('admin/holiday/tenant_holiday_type_list', ['holidayTypeList' => $holidayTypeList]);
+    }
+
+    public function tenantHolidayTypeCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('type', 'Type', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $newId = $this->holiday_model->tenantScopedInsert('holiday_type', (int) $tenantId, [
+                'type'       => $this->input->post('type'),
+                'is_default' => 0,
+            ]);
+            $this->load->view('admin/holiday/tenant_holiday_type_create', ['created' => true, 'id' => $newId]);
+
+            return;
+        }
+
+        $this->load->view('admin/holiday/tenant_holiday_type_create', ['created' => false]);
+    }
+
+    public function tenantHolidayTypeEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $holidayType = $this->holiday_model->tenantScopedFind('holiday_type', (int) $tenantId, (int) $id);
+        if (!$holidayType) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('type', 'Type', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $this->holiday_model->tenantScopedUpdate('holiday_type', (int) $tenantId, (int) $id, [
+                'type' => $this->input->post('type'),
+            ]);
+            $holidayType = $this->holiday_model->tenantScopedFind('holiday_type', (int) $tenantId, (int) $id);
+            $this->load->view('admin/holiday/tenant_holiday_type_edit', ['updated' => true, 'holidayType' => $holidayType]);
+
+            return;
+        }
+
+        $this->load->view('admin/holiday/tenant_holiday_type_edit', ['updated' => false, 'holidayType' => $holidayType]);
+    }
+
+    public function tenantHolidayTypeDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $deleted = $this->holiday_model->tenantScopedDelete('holiday_type', (int) $tenantId, (int) $id);
+        $this->load->view('admin/holiday/tenant_holiday_type_delete', ['deleted' => $deleted]);
+    }
+
 }
 
 ?>

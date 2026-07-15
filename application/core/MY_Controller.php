@@ -87,6 +87,16 @@ class Admin_Controller extends MY_Controller
                 'notification' => ['tenantnotificationsettinglist'],
                 'examgroup' => ['tenantexamresultslist', 'tenantexamgroupbatchexamslist', 'tenantexamgroupbatchexamsubjectslist', 'tenantexamgroupbatchexamstudentslist'],
                 'feegroup' => ['tenantfeegrouplist', 'tenantfeegroupfeetypelist', 'tenantfeegroupcreate', 'tenantfeegroupedit', 'tenantfeegroupdelete'],
+                'roomtype' => ['tenantroomtypelist', 'tenantroomtypecreate', 'tenantroomtypeedit', 'tenantroomtypedelete'],
+                'hostel' => ['tenanthostellist', 'tenanthostelcreate', 'tenanthosteledit', 'tenanthosteldelete'],
+                'itemcategory' => ['tenantitemcategorylist', 'tenantitemcategorycreate', 'tenantitemcategoryedit', 'tenantitemcategorydelete'],
+                'itemstore' => ['tenantitemstorelist', 'tenantitemstorecreate', 'tenantitemstoreedit', 'tenantitemstoredelete'],
+                'itemsupplier' => ['tenantitemsupplierlist', 'tenantitemsuppliercreate', 'tenantitemsupplieredit', 'tenantitemsupplierdelete'],
+                'schoolhouse' => ['tenantschoolhouselist', 'tenantschoolhousecreate', 'tenantschoolhouseedit', 'tenantschoolhousedelete'],
+                'source' => ['tenantsourcelist', 'tenantsourcecreate', 'tenantsourceedit', 'tenantsourcedelete'],
+                'route' => ['tenantroutelist', 'tenantroutecreate', 'tenantrouteedit', 'tenantroutedelete'],
+                'complainttype' => ['tenantcomplainttypelist', 'tenantcomplainttypecreate', 'tenantcomplainttypeedit', 'tenantcomplainttypedelete'],
+                'holiday' => ['tenantholidaytypelist', 'tenantholidaytypecreate', 'tenantholidaytypeedit', 'tenantholidaytypedelete'],
             ];
             if (!isset($allowedTenantRoutes[$activeController]) || !in_array($activeMethod, $allowedTenantRoutes[$activeController], true)) {
                 show_404();
