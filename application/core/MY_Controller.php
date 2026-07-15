@@ -108,6 +108,7 @@ class Admin_Controller extends MY_Controller
                 'exam' => ['tenantexamlist', 'tenantexamcreate', 'tenantexamedit', 'tenantexamdelete'],
                 'hostelroom' => ['tenanthostelroomlist', 'tenanthostelroomcreate', 'tenanthostelroomedit', 'tenanthostelroomdelete'],
                 'pickuppoint' => ['tenantpickuppointlist', 'tenantpickuppointcreate', 'tenantpickuppointedit', 'tenantpickuppointdelete'],
+                'contenttype' => ['tenantcontenttypelist', 'tenantcontenttypecreate', 'tenantcontenttypeedit', 'tenantcontenttypedelete'],
             ];
             if (!isset($allowedTenantRoutes[$activeController]) || !in_array($activeMethod, $allowedTenantRoutes[$activeController], true)) {
                 show_404();

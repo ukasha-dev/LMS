@@ -132,4 +132,87 @@ class Contenttype extends Admin_Controller
         echo json_encode($json_data);
     }
 
+    public function tenantContentTypeList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $contentTypeList = $this->contenttype_model->tenantScopedList('content_types', (int) $tenantId);
+        $this->load->view('admin/contenttype/tenant_content_type_list', ['contentTypeList' => $contentTypeList]);
+    }
+
+    public function tenantContentTypeCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('name', 'Name', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $newId = $this->contenttype_model->tenantScopedInsert('content_types', (int) $tenantId, [
+                'name'        => $this->input->post('name'),
+                'description' => $this->input->post('description'),
+                'is_active'   => 1,
+            ]);
+            $this->load->view('admin/contenttype/tenant_content_type_create', ['created' => true, 'id' => $newId]);
+
+            return;
+        }
+
+        $this->load->view('admin/contenttype/tenant_content_type_create', ['created' => false]);
+    }
+
+    public function tenantContentTypeEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $contentType = $this->contenttype_model->tenantScopedFind('content_types', (int) $tenantId, (int) $id);
+        if (!$contentType) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('name', 'Name', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $this->contenttype_model->tenantScopedUpdate('content_types', (int) $tenantId, (int) $id, [
+                'name'        => $this->input->post('name'),
+                'description' => $this->input->post('description'),
+            ]);
+            $contentType = $this->contenttype_model->tenantScopedFind('content_types', (int) $tenantId, (int) $id);
+            $this->load->view('admin/contenttype/tenant_content_type_edit', ['updated' => true, 'contentType' => $contentType]);
+
+            return;
+        }
+
+        $this->load->view('admin/contenttype/tenant_content_type_edit', ['updated' => false, 'contentType' => $contentType]);
+    }
+
+    public function tenantContentTypeDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $deleted = $this->contenttype_model->tenantScopedDelete('content_types', (int) $tenantId, (int) $id);
+        $this->load->view('admin/contenttype/tenant_content_type_delete', ['deleted' => $deleted]);
+    }
+
 }

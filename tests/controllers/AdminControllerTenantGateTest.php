@@ -1113,6 +1113,21 @@ final class AdminControllerTenantGateTest extends TestCase
         );
     }
 
+    public function testTenantContentTypeCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/contenttype/tenantContentTypeCreate',
+            ['name' => 'Isolation Test Content Type', 'description' => 'created by isolation test'],
+            'Content type created with id',
+            'admin/contenttype/tenantContentTypeEdit/',
+            'admin/contenttype/tenantContentTypeDelete/',
+            'Isolation Test Content Type',
+            'Content type deleted.',
+            'No matching content type found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
     private function curlPost(string $path, array $fields): array
     {
         $ch = curl_init(self::BASE_URL . $path);
