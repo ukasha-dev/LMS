@@ -25,6 +25,9 @@ final class NaturalKeyIdResolverTest extends TestCase
         $this->source->exec('CREATE TABLE students (id INT AUTO_INCREMENT PRIMARY KEY, admission_no VARCHAR(100) DEFAULT NULL)');
         $this->target->exec('CREATE TABLE students (id INT AUTO_INCREMENT PRIMARY KEY, admission_no VARCHAR(100) DEFAULT NULL, tenant_id INT NOT NULL)');
 
+        $this->source->exec('CREATE TABLE students_with_active (id INT AUTO_INCREMENT PRIMARY KEY, admission_no VARCHAR(100) DEFAULT NULL, is_active VARCHAR(10) DEFAULT NULL)');
+        $this->target->exec('CREATE TABLE students_with_active (id INT AUTO_INCREMENT PRIMARY KEY, admission_no VARCHAR(100) DEFAULT NULL, is_active VARCHAR(10) DEFAULT NULL, tenant_id INT NOT NULL)');
+
         $this->resolver = new NaturalKeyIdResolver();
     }
 
@@ -98,5 +101,53 @@ final class NaturalKeyIdResolverTest extends TestCase
         $this->expectException(RuntimeException::class);
 
         $this->resolver->resolve($this->source, $this->target, 25, 'students', 'admission_no');
+    }
+
+    public function testDuplicateSourceKeyWithExactlyOneActiveRowResolvesToTheActiveOne(): void
+    {
+        // Real school data: a duplicate admission_no gets "corrected" by
+        // deactivating the stale row, not deleting it. The active row is
+        // the genuine record and should resolve silently -- no exception.
+        $this->source->exec("INSERT INTO students_with_active (id, admission_no, is_active) VALUES (101, 'ADM-001', 'no'), (102, 'ADM-001', 'yes')");
+        $this->target->exec("INSERT INTO students_with_active (id, admission_no, is_active, tenant_id) VALUES (7, 'ADM-001', 'yes', 25)");
+
+        $map = $this->resolver->resolve($this->source, $this->target, 25, 'students_with_active', 'admission_no');
+
+        $this->assertSame([102 => 7], $map);
+    }
+
+    public function testDuplicateTargetKeyWithExactlyOneActiveRowResolvesToTheActiveOne(): void
+    {
+        $this->source->exec("INSERT INTO students_with_active (id, admission_no, is_active) VALUES (101, 'ADM-001', 'yes')");
+        $this->target->exec("INSERT INTO students_with_active (id, admission_no, is_active, tenant_id) VALUES (7, 'ADM-001', 'no', 25), (8, 'ADM-001', 'yes', 25)");
+
+        $map = $this->resolver->resolve($this->source, $this->target, 25, 'students_with_active', 'admission_no');
+
+        $this->assertSame([101 => 8], $map);
+    }
+
+    public function testDuplicateKeyWithNoActiveRowsIsDroppedRatherThanThrown(): void
+    {
+        // Two dead/inactive duplicates (e.g. leftover test rows) -- neither
+        // is a live record, so there is nothing dangerous about simply not
+        // resolving this key. Must not throw and must not appear in the map.
+        $this->source->exec("INSERT INTO students_with_active (id, admission_no, is_active) VALUES (101, 'ADM-001', 'no'), (102, 'ADM-001', 'no')");
+        $this->target->exec("INSERT INTO students_with_active (id, admission_no, is_active, tenant_id) VALUES (7, 'ADM-001', 'no', 25)");
+
+        $map = $this->resolver->resolve($this->source, $this->target, 25, 'students_with_active', 'admission_no');
+
+        $this->assertSame([], $map);
+    }
+
+    public function testDuplicateKeyWithMultipleActiveRowsStillThrows(): void
+    {
+        // Two DIFFERENT active rows sharing a key is genuine, dangerous
+        // ambiguity -- the is_active tiebreak must not paper over this.
+        $this->source->exec("INSERT INTO students_with_active (id, admission_no, is_active) VALUES (101, 'ADM-001', 'yes'), (102, 'ADM-001', 'yes')");
+        $this->target->exec("INSERT INTO students_with_active (id, admission_no, is_active, tenant_id) VALUES (7, 'ADM-001', 'yes', 25)");
+
+        $this->expectException(RuntimeException::class);
+
+        $this->resolver->resolve($this->source, $this->target, 25, 'students_with_active', 'admission_no');
     }
 }

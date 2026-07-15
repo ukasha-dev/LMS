@@ -21,7 +21,7 @@ final class MergeFeeDataTest extends TestCase
         $this->target = new PDO('mysql:host=127.0.0.1;dbname=merge_fee_test_target;charset=utf8mb4', 'root', '');
         $this->target->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
-        $sessionSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, session VARCHAR(60) DEFAULT NULL';
+        $sessionSchema = "id INT AUTO_INCREMENT PRIMARY KEY, session VARCHAR(60) DEFAULT NULL, is_active VARCHAR(10) NOT NULL DEFAULT 'yes'";
         $feetypeSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, is_system INT NOT NULL DEFAULT 0, type VARCHAR(50) DEFAULT NULL,'
             . ' code VARCHAR(100) NOT NULL, is_active VARCHAR(255) DEFAULT NULL, description TEXT DEFAULT NULL,'
             . ' session_id INT DEFAULT NULL, nature VARCHAR(255) NOT NULL,'
@@ -45,7 +45,7 @@ final class MergeFeeDataTest extends TestCase
             . ' created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP';
         $reminderSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, reminder_type VARCHAR(10) DEFAULT NULL, day INT DEFAULT NULL,'
             . ' is_active INT DEFAULT 0, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP';
-        $studentSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, admission_no VARCHAR(100) DEFAULT NULL';
+        $studentSchema = "id INT AUTO_INCREMENT PRIMARY KEY, admission_no VARCHAR(100) DEFAULT NULL, is_active VARCHAR(10) NOT NULL DEFAULT 'yes'";
         $classSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, class VARCHAR(60) DEFAULT NULL';
         $sectionSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, section VARCHAR(60) DEFAULT NULL';
         $studentSessionSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, student_id INT NOT NULL, class_id INT NOT NULL, section_id INT NOT NULL,'
@@ -170,8 +170,10 @@ final class MergeFeeDataTest extends TestCase
     public function testThrowsWhenAnActuallyReferencedSessionNameIsAmbiguous(): void
     {
         // Unlike the test above, THIS session name collision is directly
-        // referenced by the row being migrated -- must still throw,
-        // exactly like the pre-fix behavior for a genuine ambiguity.
+        // referenced by the row being migrated, and BOTH duplicate target
+        // rows default to is_active='yes' -- so the is_active tiebreak
+        // can't disambiguate either, and this must still throw exactly
+        // like the pre-fix behavior for a genuine, dangerous ambiguity.
         $this->source->exec("INSERT INTO sessions (id, session) VALUES (20, '2024-25')");
         $this->target->exec("INSERT INTO sessions (id, session, tenant_id) VALUES (2, '2024-25', 25), (3, '2024-25', 25)");
 
@@ -181,6 +183,40 @@ final class MergeFeeDataTest extends TestCase
 
         $this->expectException(RuntimeException::class);
         $merger->run();
+    }
+
+    public function testReferencedSessionNameWithExactlyOneActiveMatchResolvesToIt(): void
+    {
+        // Mirrors the real salam_boys_school/salam_girls_school collision:
+        // a duplicate session label where the tiebreak DOES have a signal.
+        $this->source->exec("INSERT INTO sessions (id, session) VALUES (20, '2024-25')");
+        $this->target->exec("INSERT INTO sessions (id, session, is_active, tenant_id) VALUES (2, '2024-25', 'no', 25), (3, '2024-25', 'yes', 25)");
+
+        $this->source->exec("INSERT INTO feetype (id, type, code, nature, session_id) VALUES (5, 'Tuition Fee', 'TUI', 'monthly', 20)");
+
+        $merger = new MergeFeeData($this->source, $this->target, 25);
+        $result = $merger->run();
+
+        $this->assertSame(1, $result['feetype_migrated']);
+        $feetype = $this->target->query('SELECT * FROM feetype')->fetch(PDO::FETCH_ASSOC);
+        $this->assertSame(3, (int) $feetype['session_id']);
+    }
+
+    public function testReferencedSessionNameWithNoActiveMatchIsSkippedRatherThanThrown(): void
+    {
+        // Mirrors the real salam_boys_school/salam_girls_school collision
+        // exactly: every session row for this school is is_active='no'.
+        // No live session this could mean -- skip like an unmatched id.
+        $this->source->exec("INSERT INTO sessions (id, session) VALUES (20, '2024-25')");
+        $this->target->exec("INSERT INTO sessions (id, session, is_active, tenant_id) VALUES (2, '2024-25', 'no', 25), (3, '2024-25', 'no', 25)");
+
+        $this->source->exec("INSERT INTO feetype (id, type, code, nature, session_id) VALUES (5, 'Tuition Fee', 'TUI', 'monthly', 20)");
+
+        $merger = new MergeFeeData($this->source, $this->target, 25);
+        $result = $merger->run();
+
+        $this->assertSame(0, $result['feetype_migrated']);
+        $this->assertSame(1, $result['feetype_skipped']);
     }
 
     public function testReconnectsStudentFeesMasterAndDiscountsToAlreadyMigratedData(): void

@@ -311,7 +311,7 @@ final class MergeFeeData extends AbstractTenantMerger
             $sourceNameById[(int) $row['id']] = $row['session'];
         }
 
-        $targetStmt = $this->target->prepare('SELECT id, session FROM sessions WHERE tenant_id = :tenant_id');
+        $targetStmt = $this->target->prepare('SELECT id, session, is_active FROM sessions WHERE tenant_id = :tenant_id');
         $targetStmt->execute([':tenant_id' => $this->tenantId]);
         $targetRows = $targetStmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -322,18 +322,47 @@ final class MergeFeeData extends AbstractTenantMerger
                 continue;
             }
             $matches = array_values(array_filter($targetRows, static fn ($row) => $row['session'] === $name));
+            if (count($matches) === 1) {
+                $oldToNew[$oldId] = (int) $matches[0]['id'];
+                continue;
+            }
             if (count($matches) > 1) {
+                // Duplicate session labels are common in real school data
+                // (see NaturalKeyIdResolver/StudentSessionIdResolver): the
+                // "current" session gets recreated instead of the stale row
+                // being deleted. Prefer the one active match; if none are
+                // active there is no live session this could mean, so skip
+                // it like an unmatched id rather than guessing. Only
+                // multiple active matches is genuine, dangerous ambiguity.
+                $activeMatches = array_values(array_filter(
+                    $matches,
+                    fn ($row) => $this->isActiveValue($row['is_active'])
+                ));
+                if (count($activeMatches) === 1) {
+                    $oldToNew[$oldId] = (int) $activeMatches[0]['id'];
+                    continue;
+                }
+                if (count($activeMatches) === 0) {
+                    continue;
+                }
+
                 throw new RuntimeException(
                     "Ambiguous natural key: multiple distinct ids share the value \"{$name}\" in column \"session\""
                     . " of table \"sessions\" — cannot safely resolve. Manual investigation required."
                 );
             }
-            if (count($matches) === 1) {
-                $oldToNew[$oldId] = (int) $matches[0]['id'];
-            }
         }
 
         return $oldToNew;
+    }
+
+    private function isActiveValue($value): bool
+    {
+        if (is_string($value)) {
+            return strtolower(trim($value)) === 'yes' || trim($value) === '1';
+        }
+
+        return ((int) $value) === 1;
     }
 }
 

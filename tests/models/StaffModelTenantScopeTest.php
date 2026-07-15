@@ -15,22 +15,33 @@ final class StaffModelTenantScopeTest extends TestCase
     public function testTenantScopedQueryMatchesExactlyOneTenantsStaffRows(): void
     {
         // Mirrors exactly the query Staff_model::getTenantScopedStaffList()
-        // will run (WHERE tenant_id = ? against `staff`). Tenant 25's
-        // real staff count (18) was established and verified during
-        // Stage 1 -- this test re-derives it independently rather than
-        // trusting that number, so it also catches any drift in the
-        // real data since then.
+        // will run (WHERE tenant_id = ? against `staff`). Each count below
+        // was established and verified independently against the real
+        // source school database for that tenant (see the Phase 5 batch
+        // that onboarded tenants 26-30), so this test re-derives them
+        // rather than trusting a single cached number, and also catches
+        // any drift or cross-tenant contamination in the real data.
+        $expectedStaffCountByTenant = [
+            25 => 18,  // Al-Hafeez Campus
+            26 => 17,  // Al-Mateen Campus
+            27 => 27,  // Nafay Campus
+            28 => 23,  // Salam Boys School
+            29 => 18,  // Salam Girls School
+            30 => 172, // Smart School
+        ];
+
         $stmt = $this->db->prepare('SELECT COUNT(*) FROM staff WHERE tenant_id = :tenant_id');
-        $stmt->execute([':tenant_id' => 25]);
-        $count = (int) $stmt->fetchColumn();
+        foreach ($expectedStaffCountByTenant as $tenantId => $expectedCount) {
+            $stmt->execute([':tenant_id' => $tenantId]);
+            $this->assertSame($expectedCount, (int) $stmt->fetchColumn(), "tenant {$tenantId} staff count");
+        }
 
-        $this->assertGreaterThan(0, $count);
-
-        // No other tenant currently has data -- this assertion documents
-        // that fact and will need updating (not silently pass/fail
-        // differently) once a second tenant is migrated in Phase 5.
-        $stmt = $this->db->prepare('SELECT COUNT(*) FROM staff WHERE tenant_id != :tenant_id');
-        $stmt->execute([':tenant_id' => 25]);
+        // No tenant OTHER than the six above currently has staff data --
+        // this assertion documents that fact and will need updating (not
+        // silently pass/fail differently) once a further tenant is onboarded.
+        $placeholders = implode(', ', array_fill(0, count($expectedStaffCountByTenant), '?'));
+        $stmt = $this->db->prepare("SELECT COUNT(*) FROM staff WHERE tenant_id NOT IN ({$placeholders})");
+        $stmt->execute(array_keys($expectedStaffCountByTenant));
         $this->assertSame(0, (int) $stmt->fetchColumn());
     }
 }

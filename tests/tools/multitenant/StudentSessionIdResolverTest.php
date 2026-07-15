@@ -22,7 +22,7 @@ final class StudentSessionIdResolverTest extends TestCase
         $this->target = new PDO('mysql:host=127.0.0.1;dbname=sessionresolver_test_target;charset=utf8mb4', 'root', '');
         $this->target->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
-        $studentSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, admission_no VARCHAR(100) DEFAULT NULL';
+        $studentSchema = "id INT AUTO_INCREMENT PRIMARY KEY, admission_no VARCHAR(100) DEFAULT NULL, is_active VARCHAR(10) NOT NULL DEFAULT 'yes'";
         $classSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, class VARCHAR(60) DEFAULT NULL';
         $sectionSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, section VARCHAR(60) DEFAULT NULL';
         $sessionSchema = 'id INT AUTO_INCREMENT PRIMARY KEY, student_id INT NOT NULL, class_id INT NOT NULL, section_id INT NOT NULL,'
@@ -136,5 +136,51 @@ final class StudentSessionIdResolverTest extends TestCase
         $map = $this->resolver->resolve($this->source, $this->target, 25);
 
         $this->assertSame([401 => 4, 402 => 5], $map);
+    }
+
+    public function testDuplicateAdmissionNoWithExactlyOneActiveStudentResolvesToTheActiveOne(): void
+    {
+        // Mirrors the real nafay_campus collision: two student rows share
+        // one admission_no (a data-entry duplicate corrected by
+        // deactivating the stale one), both bulk-assigned to the same
+        // class/section at the same batch timestamp -- an exact composite
+        // key collision. Must resolve to the active student's session row.
+        $this->source->exec("INSERT INTO students (id, admission_no, is_active) VALUES (101, 'ADM-001', 'no'), (102, 'ADM-001', 'yes')");
+        $this->source->exec("INSERT INTO classes (id, class) VALUES (201, 'Class 1')");
+        $this->source->exec("INSERT INTO sections (id, section) VALUES (301, 'A')");
+        $this->source->exec(
+            "INSERT INTO student_session (id, student_id, class_id, section_id, created_at) VALUES"
+            . " (401, 101, 201, 301, '2026-05-18 11:19:12'), (402, 102, 201, 301, '2026-05-18 11:19:12')"
+        );
+
+        $this->target->exec("INSERT INTO students (id, admission_no, is_active, tenant_id) VALUES (1, 'ADM-001', 'yes', 25)");
+        $this->target->exec("INSERT INTO classes (id, class, tenant_id) VALUES (2, 'Class 1', 25)");
+        $this->target->exec("INSERT INTO sections (id, section, tenant_id) VALUES (3, 'A', 25)");
+        $this->target->exec("INSERT INTO student_session (id, student_id, class_id, section_id, tenant_id, created_at) VALUES (4, 1, 2, 3, 25, '2026-05-18 11:19:12')");
+
+        $map = $this->resolver->resolve($this->source, $this->target, 25);
+
+        $this->assertSame([402 => 4], $map);
+        $this->assertArrayNotHasKey(401, $map);
+    }
+
+    public function testDuplicateAdmissionNoWithNoActiveStudentDropsTheKeyRatherThanThrows(): void
+    {
+        $this->source->exec("INSERT INTO students (id, admission_no, is_active) VALUES (101, 'ADM-001', 'no'), (102, 'ADM-001', 'no')");
+        $this->source->exec("INSERT INTO classes (id, class) VALUES (201, 'Class 1')");
+        $this->source->exec("INSERT INTO sections (id, section) VALUES (301, 'A')");
+        $this->source->exec(
+            "INSERT INTO student_session (id, student_id, class_id, section_id, created_at) VALUES"
+            . " (401, 101, 201, 301, '2026-05-18 11:19:12'), (402, 102, 201, 301, '2026-05-18 11:19:12')"
+        );
+
+        $this->target->exec("INSERT INTO students (id, admission_no, is_active, tenant_id) VALUES (1, 'ADM-001', 'no', 25)");
+        $this->target->exec("INSERT INTO classes (id, class, tenant_id) VALUES (2, 'Class 1', 25)");
+        $this->target->exec("INSERT INTO sections (id, section, tenant_id) VALUES (3, 'A', 25)");
+        $this->target->exec("INSERT INTO student_session (id, student_id, class_id, section_id, tenant_id, created_at) VALUES (4, 1, 2, 3, 25, '2026-05-18 11:19:12')");
+
+        $map = $this->resolver->resolve($this->source, $this->target, 25);
+
+        $this->assertSame([], $map);
     }
 }
