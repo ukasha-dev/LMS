@@ -265,6 +265,32 @@ final class AdminControllerTenantGateTest extends TestCase
         $this->assertSame(404, $classesIndexStatus);
     }
 
+    public function testAllowlistGateSupportsMultipleMethodsOnTheSameController(): void
+    {
+        // The gate was generalized from "one method per controller" to
+        // "a list of methods per controller" specifically to allow this:
+        // roles now has two allowlisted methods. Both must work, and a
+        // real, un-allowlisted sibling method on that SAME controller
+        // must still 404 -- proving the generalization didn't accidentally
+        // widen the gate to "any method on an allowlisted controller."
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        [$rolesListStatus, $rolesListBody] = $this->curlGet('admin/roles/tenantRolesList');
+        $this->assertSame(200, $rolesListStatus);
+        $this->assertStringContainsString('Tenant Roles List', $rolesListBody);
+
+        [$rolesPermissionsStatus, $rolesPermissionsBody] = $this->curlGet('admin/roles/tenantRolesPermissionsList');
+        $this->assertSame(200, $rolesPermissionsStatus);
+        $this->assertStringContainsString('Tenant Roles Permissions List', $rolesPermissionsBody);
+
+        [$rolesIndexStatus, ] = $this->curlGet('admin/roles/index');
+        $this->assertSame(404, $rolesIndexStatus);
+
+        [$rolesPermissionMethodStatus, ] = $this->curlGet('admin/roles/permission/1');
+        $this->assertSame(404, $rolesPermissionMethodStatus);
+    }
+
     private function curlPostPilotLogin(): array
     {
         $ch = curl_init(self::BASE_URL . 'pilotlogin/login');

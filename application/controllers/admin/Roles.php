@@ -195,4 +195,17 @@ class Roles extends Admin_Controller
         $rolesList = $this->role_model->getTenantScopedRolesList((int) $tenantId);
         $this->load->view('admin/roles/tenant_roles_list', ['rolesList' => $rolesList]);
     }
+
+    public function tenantRolesPermissionsList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $rolesPermissionsList = $this->role_model->getTenantScopedRolesPermissionsList((int) $tenantId);
+        $this->load->view('admin/roles/tenant_roles_permissions_list', ['rolesPermissionsList' => $rolesPermissionsList]);
+    }
 }

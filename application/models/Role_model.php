@@ -238,4 +238,16 @@ class Role_model extends MY_Model {
         return $this->db->where('tenant_id', $tenantId)->get('roles')->result_array();
     }
 
+    public function getTenantScopedRolesPermissionsList($tenantId)
+    {
+        return $this->db
+            ->select('roles_permissions.*, roles.name AS role_name, permission_category.name AS permission_name')
+            ->from('roles_permissions')
+            ->join('roles', 'roles.id = roles_permissions.role_id AND roles.tenant_id = ' . (int) $tenantId)
+            ->join('permission_category', 'permission_category.id = roles_permissions.perm_cat_id AND permission_category.tenant_id = ' . (int) $tenantId)
+            ->where('roles_permissions.tenant_id', $tenantId)
+            ->get()
+            ->result_array();
+    }
+
 }

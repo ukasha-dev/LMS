@@ -62,21 +62,21 @@ class Admin_Controller extends MY_Controller
             $activeController = strtolower($this->router->fetch_class());
             $activeMethod     = strtolower($this->router->fetch_method());
             $allowedTenantRoutes = [
-                'staff' => 'tenantstafflist',
-                'feesforward' => 'tenantfeeslist',
-                'examgroup' => 'tenantexamresultslist',
-                'stuattendence' => 'tenantattendancelist',
-                'leaverequest' => 'tenantleaverequestlist',
-                'classes' => 'tenantclasslist',
-                'sections' => 'tenantsectionlist',
-                'roles' => 'tenantroleslist',
-                'department' => 'tenantdepartmentlist',
-                'designation' => 'tenantdesignationlist',
-                'leavetypes' => 'tenantleavetypeslist',
-                'subject' => 'tenantsubjectlist',
-                'grade' => 'tenantgradelist',
+                'staff' => ['tenantstafflist'],
+                'feesforward' => ['tenantfeeslist'],
+                'examgroup' => ['tenantexamresultslist'],
+                'stuattendence' => ['tenantattendancelist'],
+                'leaverequest' => ['tenantleaverequestlist'],
+                'classes' => ['tenantclasslist'],
+                'sections' => ['tenantsectionlist'],
+                'roles' => ['tenantroleslist', 'tenantrolespermissionslist'],
+                'department' => ['tenantdepartmentlist'],
+                'designation' => ['tenantdesignationlist'],
+                'leavetypes' => ['tenantleavetypeslist'],
+                'subject' => ['tenantsubjectlist'],
+                'grade' => ['tenantgradelist'],
             ];
-            if (!isset($allowedTenantRoutes[$activeController]) || $allowedTenantRoutes[$activeController] !== $activeMethod) {
+            if (!isset($allowedTenantRoutes[$activeController]) || !in_array($activeMethod, $allowedTenantRoutes[$activeController], true)) {
                 show_404();
 
                 return;
