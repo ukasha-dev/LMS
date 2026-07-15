@@ -1696,6 +1696,55 @@ final class AdminControllerTenantGateTest extends TestCase
         }
     }
 
+    public function testTenantOnlineexamCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/onlineexam/tenantOnlineexamCreate',
+            [
+                'exam' => 'Isolation Test Online Exam',
+                'attempt' => '1',
+                'duration' => '01:00:00',
+                'passing_percentage' => '40',
+                'session_id' => 1,
+            ],
+            'Online exam created with id',
+            'admin/onlineexam/tenantOnlineexamEdit/',
+            'admin/onlineexam/tenantOnlineexamDelete/',
+            'Isolation Test Online Exam',
+            'Online exam deleted.',
+            'No matching online exam found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantOnlineexamCreateRejectsForgedSessionId(): void
+    {
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        $otherCookieJar = tempnam(sys_get_temp_dir(), 'admgate_test_other_');
+        $realCookieJar = $this->cookieJar;
+        $this->cookieJar = $otherCookieJar;
+
+        try {
+            [$otherLoginStatus, ] = $this->curlPostPilotLoginAs(26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!');
+            $this->assertContains($otherLoginStatus, [200, 302, 303, 307]);
+
+            // Tenant 26 references tenant 25's session id -- must 404 the whole request.
+            [$forgeStatus, ] = $this->curlPost('admin/onlineexam/tenantOnlineexamCreate', [
+                'exam' => 'Forged Online Exam',
+                'attempt' => '1',
+                'duration' => '01:00:00',
+                'passing_percentage' => '40',
+                'session_id' => 1,
+            ]);
+            $this->assertSame(404, $forgeStatus, 'referencing another tenant session_id must be rejected');
+        } finally {
+            $this->cookieJar = $realCookieJar;
+            @unlink($otherCookieJar);
+        }
+    }
+
     private function curlPost(string $path, array $fields): array
     {
         $ch = curl_init(self::BASE_URL . $path);

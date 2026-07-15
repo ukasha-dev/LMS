@@ -1232,4 +1232,141 @@ class Onlineexam extends Admin_Controller
         echo json_encode($array);
     }
 
+    // Scoped to the base onlineexam entity only (title/dates/duration/
+    // settings flags/passing_percentage, one real FK: session_id -- verified
+    // against `sessions` before use). Question assignment, student
+    // assignment, and rank-saving (saverank() above) are a separate,
+    // more complex feature involving several more FKs -- deliberately out
+    // of scope here, same reasoning as excluding Roles' permission-
+    // assignment feature and Feediscount's assign()/studentdiscount().
+
+    public function tenantOnlineexamList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $onlineexamList = $this->onlineexam_model->tenantScopedList('onlineexam', (int) $tenantId);
+        $this->load->view('admin/onlineexam/tenant_onlineexam_list', ['onlineexamList' => $onlineexamList]);
+    }
+
+    public function tenantOnlineexamCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $this->form_validation->set_rules('exam', 'Exam Title', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('attempt', 'Attempt', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('duration', 'Duration', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('passing_percentage', 'Passing Percentage', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/onlineexam/tenant_onlineexam_create', ['created' => false]);
+
+            return;
+        }
+
+        $sessionId = $this->input->post('session_id');
+        if ($sessionId && !$this->onlineexam_model->tenantScopedFind('sessions', $tenantId, (int) $sessionId)) {
+            show_404();
+
+            return;
+        }
+
+        $examId = $this->onlineexam_model->tenantScopedInsert('onlineexam', $tenantId, [
+            'session_id'                   => $sessionId ?: null,
+            'exam'                         => $this->input->post('exam'),
+            'attempt'                      => $this->input->post('attempt'),
+            'exam_from'                    => $this->input->post('exam_from') ?: null,
+            'exam_to'                      => $this->input->post('exam_to') ?: null,
+            'duration'                     => $this->input->post('duration'),
+            'description'                  => $this->input->post('description'),
+            'passing_percentage'           => $this->input->post('passing_percentage'),
+            'is_active'                    => $this->input->post('is_active') ? '1' : '0',
+            'is_quiz'                      => 0,
+            'publish_result'               => 0,
+            'answer_word_count'            => 0,
+            'is_marks_display'             => 0,
+            'is_neg_marking'               => 0,
+            'is_random_question'           => 0,
+            'is_rank_generated'            => 0,
+            'publish_exam_notification'    => 0,
+            'publish_result_notification'  => 0,
+        ]);
+
+        $this->load->view('admin/onlineexam/tenant_onlineexam_create', ['created' => true, 'id' => $examId]);
+    }
+
+    public function tenantOnlineexamEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $exam = $this->onlineexam_model->tenantScopedFind('onlineexam', $tenantId, (int) $id);
+        if (!$exam) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('exam', 'Exam Title', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('attempt', 'Attempt', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('duration', 'Duration', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('passing_percentage', 'Passing Percentage', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/onlineexam/tenant_onlineexam_edit', ['updated' => false, 'exam' => $exam]);
+
+            return;
+        }
+
+        $sessionId = $this->input->post('session_id');
+        if ($sessionId && !$this->onlineexam_model->tenantScopedFind('sessions', $tenantId, (int) $sessionId)) {
+            show_404();
+
+            return;
+        }
+
+        $this->onlineexam_model->tenantScopedUpdate('onlineexam', $tenantId, (int) $id, [
+            'session_id'          => $sessionId ?: null,
+            'exam'                => $this->input->post('exam'),
+            'attempt'             => $this->input->post('attempt'),
+            'exam_from'           => $this->input->post('exam_from') ?: null,
+            'exam_to'             => $this->input->post('exam_to') ?: null,
+            'duration'            => $this->input->post('duration'),
+            'description'         => $this->input->post('description'),
+            'passing_percentage'  => $this->input->post('passing_percentage'),
+            'is_active'           => $this->input->post('is_active') ? '1' : '0',
+        ]);
+
+        $exam = $this->onlineexam_model->tenantScopedFind('onlineexam', $tenantId, (int) $id);
+        $this->load->view('admin/onlineexam/tenant_onlineexam_edit', ['updated' => true, 'exam' => $exam]);
+    }
+
+    public function tenantOnlineexamDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $deleted = $this->onlineexam_model->tenantScopedDelete('onlineexam', (int) $tenantId, (int) $id);
+        $this->load->view('admin/onlineexam/tenant_onlineexam_delete', ['deleted' => $deleted]);
+    }
+
 }
