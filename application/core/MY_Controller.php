@@ -97,6 +97,14 @@ class Admin_Controller extends MY_Controller
                 'route' => ['tenantroutelist', 'tenantroutecreate', 'tenantrouteedit', 'tenantroutedelete'],
                 'complainttype' => ['tenantcomplainttypelist', 'tenantcomplainttypecreate', 'tenantcomplainttypeedit', 'tenantcomplainttypedelete'],
                 'holiday' => ['tenantholidaytypelist', 'tenantholidaytypecreate', 'tenantholidaytypeedit', 'tenantholidaytypedelete'],
+                'disable_reason' => ['tenantdisablereasonlist', 'tenantdisablereasoncreate', 'tenantdisablereasonedit', 'tenantdisablereasondelete'],
+                'expensehead' => ['tenantexpenseheadlist', 'tenantexpenseheadcreate', 'tenantexpenseheadedit', 'tenantexpenseheaddelete'],
+                'incomehead' => ['tenantincomeheadlist', 'tenantincomeheadcreate', 'tenantincomeheadedit', 'tenantincomeheaddelete'],
+                'marksdivision' => ['tenantmarksdivisionlist', 'tenantmarksdivisioncreate', 'tenantmarksdivisionedit', 'tenantmarksdivisiondelete'],
+                'reference' => ['tenantreferencelist', 'tenantreferencecreate', 'tenantreferenceedit', 'tenantreferencedelete'],
+                'visitorspurpose' => ['tenantvisitorspurposelist', 'tenantvisitorspurposecreate', 'tenantvisitorspurposeedit', 'tenantvisitorspurposedelete'],
+                'generalcall' => ['tenantgeneralcalllist', 'tenantgeneralcallcreate', 'tenantgeneralcalledit', 'tenantgeneralcalldelete'],
+                'category' => ['tenantcategorylist', 'tenantcategorycreate', 'tenantcategoryedit', 'tenantcategorydelete'],
             ];
             if (!isset($allowedTenantRoutes[$activeController]) || !in_array($activeMethod, $allowedTenantRoutes[$activeController], true)) {
                 show_404();

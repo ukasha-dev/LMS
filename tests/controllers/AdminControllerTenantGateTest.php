@@ -821,6 +821,135 @@ final class AdminControllerTenantGateTest extends TestCase
         );
     }
 
+    public function testTenantDisableReasonCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/disable_reason/tenantDisableReasonCreate',
+            ['reason' => 'Isolation Test Disable Reason'],
+            'Disable reason created with id',
+            'admin/disable_reason/tenantDisableReasonEdit/',
+            'admin/disable_reason/tenantDisableReasonDelete/',
+            'Isolation Test Disable Reason',
+            'Disable reason deleted.',
+            'No matching disable reason found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantExpenseheadCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/expensehead/tenantExpenseheadCreate',
+            ['expensehead' => 'Isolation Test Expense Head'],
+            'Expense head created with id',
+            'admin/expensehead/tenantExpenseheadEdit/',
+            'admin/expensehead/tenantExpenseheadDelete/',
+            'Isolation Test Expense Head',
+            'Expense head deleted.',
+            'No matching expense head found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantIncomeheadCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/incomehead/tenantIncomeheadCreate',
+            ['incomehead' => 'Isolation Test Income Head'],
+            'Income head created with id',
+            'admin/incomehead/tenantIncomeheadEdit/',
+            'admin/incomehead/tenantIncomeheadDelete/',
+            'Isolation Test Income Head',
+            'Income head deleted.',
+            'No matching income head found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantMarksdivisionCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/marksdivision/tenantMarksdivisionCreate',
+            ['name' => 'Isolation Test Mark Division', 'percentage_from' => '80', 'percentage_to' => '89'],
+            'Mark division created with id',
+            'admin/marksdivision/tenantMarksdivisionEdit/',
+            'admin/marksdivision/tenantMarksdivisionDelete/',
+            'Isolation Test Mark Division',
+            'Mark division deleted.',
+            'No matching mark division found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantReferenceCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/reference/tenantReferenceCreate',
+            ['reference' => 'Isolation Test Reference', 'description' => 'x'],
+            'Reference created with id',
+            'admin/reference/tenantReferenceEdit/',
+            'admin/reference/tenantReferenceDelete/',
+            'Isolation Test Reference',
+            'Reference deleted.',
+            'No matching reference found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantVisitorsPurposeCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/visitorspurpose/tenantVisitorsPurposeCreate',
+            ['visitors_purpose' => 'Isolation Test Visitors Purpose', 'description' => 'x'],
+            'Visitors purpose created with id',
+            'admin/visitorspurpose/tenantVisitorsPurposeEdit/',
+            'admin/visitorspurpose/tenantVisitorsPurposeDelete/',
+            'Isolation Test Visitors Purpose',
+            'Visitors purpose deleted.',
+            'No matching visitors purpose found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantGeneralcallCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/generalcall/tenantGeneralcallCreate',
+            [
+                'name' => 'Isolation Test General Call',
+                'contact' => '1234567890',
+                'date' => '2026-07-15',
+                'description' => 'x',
+                'follow_up_date' => '2026-07-20',
+                'call_duration' => '5',
+                'note' => 'x',
+                'call_type' => 'incoming',
+            ],
+            'General call created with id',
+            'admin/generalcall/tenantGeneralcallEdit/',
+            'admin/generalcall/tenantGeneralcallDelete/',
+            'Isolation Test General Call',
+            'General call deleted.',
+            'No matching general call found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantCategoryCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'category/tenantCategoryCreate',
+            ['category' => 'Isolation Test Category'],
+            'Category created with id',
+            'category/tenantCategoryEdit/',
+            'category/tenantCategoryDelete/',
+            'Isolation Test Category',
+            'Category deleted.',
+            'No matching category found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
     private function curlPost(string $path, array $fields): array
     {
         $ch = curl_init(self::BASE_URL . $path);

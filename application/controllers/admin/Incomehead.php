@@ -102,4 +102,88 @@ class Incomehead extends Admin_Controller
         }
     }
 
+    public function tenantIncomeheadList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $incomeheadList = $this->incomehead_model->tenantScopedList('income_head', (int) $tenantId);
+        $this->load->view('admin/incomehead/tenant_incomehead_list', ['incomeheadList' => $incomeheadList]);
+    }
+
+    public function tenantIncomeheadCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('incomehead', 'Income Head', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $newId = $this->incomehead_model->tenantScopedInsert('income_head', (int) $tenantId, [
+                'income_category' => $this->input->post('incomehead'),
+                'description'     => $this->input->post('description'),
+                'is_active'       => 'yes',
+                'is_deleted'      => 'no',
+            ]);
+            $this->load->view('admin/incomehead/tenant_incomehead_create', ['created' => true, 'id' => $newId]);
+
+            return;
+        }
+
+        $this->load->view('admin/incomehead/tenant_incomehead_create', ['created' => false]);
+    }
+
+    public function tenantIncomeheadEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $incomehead = $this->incomehead_model->tenantScopedFind('income_head', (int) $tenantId, (int) $id);
+        if (!$incomehead) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('incomehead', 'Income Head', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $this->incomehead_model->tenantScopedUpdate('income_head', (int) $tenantId, (int) $id, [
+                'income_category' => $this->input->post('incomehead'),
+                'description'     => $this->input->post('description'),
+            ]);
+            $incomehead = $this->incomehead_model->tenantScopedFind('income_head', (int) $tenantId, (int) $id);
+            $this->load->view('admin/incomehead/tenant_incomehead_edit', ['updated' => true, 'incomehead' => $incomehead]);
+
+            return;
+        }
+
+        $this->load->view('admin/incomehead/tenant_incomehead_edit', ['updated' => false, 'incomehead' => $incomehead]);
+    }
+
+    public function tenantIncomeheadDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $deleted = $this->incomehead_model->tenantScopedDelete('income_head', (int) $tenantId, (int) $id);
+        $this->load->view('admin/incomehead/tenant_incomehead_delete', ['deleted' => $deleted]);
+    }
+
 }

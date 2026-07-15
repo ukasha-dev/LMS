@@ -101,4 +101,85 @@ class Category extends Admin_Controller
         }
     }
 
+    public function tenantCategoryList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $categoryList = $this->category_model->tenantScopedList('categories', (int) $tenantId);
+        $this->load->view('category/tenant_category_list', ['categoryList' => $categoryList]);
+    }
+
+    public function tenantCategoryCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('category', 'Category', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $newId = $this->category_model->tenantScopedInsert('categories', (int) $tenantId, [
+                'category'  => $this->input->post('category'),
+                'is_active' => 'yes',
+            ]);
+            $this->load->view('category/tenant_category_create', ['created' => true, 'id' => $newId]);
+
+            return;
+        }
+
+        $this->load->view('category/tenant_category_create', ['created' => false]);
+    }
+
+    public function tenantCategoryEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $category = $this->category_model->tenantScopedFind('categories', (int) $tenantId, (int) $id);
+        if (!$category) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('category', 'Category', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $this->category_model->tenantScopedUpdate('categories', (int) $tenantId, (int) $id, [
+                'category' => $this->input->post('category'),
+            ]);
+            $category = $this->category_model->tenantScopedFind('categories', (int) $tenantId, (int) $id);
+            $this->load->view('category/tenant_category_edit', ['updated' => true, 'category' => $category]);
+
+            return;
+        }
+
+        $this->load->view('category/tenant_category_edit', ['updated' => false, 'category' => $category]);
+    }
+
+    public function tenantCategoryDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $deleted = $this->category_model->tenantScopedDelete('categories', (int) $tenantId, (int) $id);
+        $this->load->view('category/tenant_category_delete', ['deleted' => $deleted]);
+    }
+
 }

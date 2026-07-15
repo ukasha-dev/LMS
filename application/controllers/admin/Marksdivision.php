@@ -92,4 +92,92 @@ class Marksdivision extends Admin_Controller
         redirect('admin/marksdivision/index');
     }
 
+    public function tenantMarksdivisionList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $marksdivisionList = $this->marksdivision_model->tenantScopedList('mark_divisions', (int) $tenantId);
+        $this->load->view('admin/marksdivision/tenant_marksdivision_list', ['marksdivisionList' => $marksdivisionList]);
+    }
+
+    public function tenantMarksdivisionCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('name', 'Name', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('percentage_from', 'Percentage From', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('percentage_to', 'Percentage To', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $newId = $this->marksdivision_model->tenantScopedInsert('mark_divisions', (int) $tenantId, [
+                'name'            => $this->input->post('name'),
+                'percentage_from' => $this->input->post('percentage_from'),
+                'percentage_to'   => $this->input->post('percentage_to'),
+            ]);
+            $this->load->view('admin/marksdivision/tenant_marksdivision_create', ['created' => true, 'id' => $newId]);
+
+            return;
+        }
+
+        $this->load->view('admin/marksdivision/tenant_marksdivision_create', ['created' => false]);
+    }
+
+    public function tenantMarksdivisionEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $marksdivision = $this->marksdivision_model->tenantScopedFind('mark_divisions', (int) $tenantId, (int) $id);
+        if (!$marksdivision) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('name', 'Name', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('percentage_from', 'Percentage From', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('percentage_to', 'Percentage To', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $this->marksdivision_model->tenantScopedUpdate('mark_divisions', (int) $tenantId, (int) $id, [
+                'name'            => $this->input->post('name'),
+                'percentage_from' => $this->input->post('percentage_from'),
+                'percentage_to'   => $this->input->post('percentage_to'),
+            ]);
+            $marksdivision = $this->marksdivision_model->tenantScopedFind('mark_divisions', (int) $tenantId, (int) $id);
+            $this->load->view('admin/marksdivision/tenant_marksdivision_edit', ['updated' => true, 'marksdivision' => $marksdivision]);
+
+            return;
+        }
+
+        $this->load->view('admin/marksdivision/tenant_marksdivision_edit', ['updated' => false, 'marksdivision' => $marksdivision]);
+    }
+
+    public function tenantMarksdivisionDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $deleted = $this->marksdivision_model->tenantScopedDelete('mark_divisions', (int) $tenantId, (int) $id);
+        $this->load->view('admin/marksdivision/tenant_marksdivision_delete', ['deleted' => $deleted]);
+    }
+
 }

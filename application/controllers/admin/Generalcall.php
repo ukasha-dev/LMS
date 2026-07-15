@@ -168,4 +168,104 @@ class Generalcall extends Admin_Controller
         );
         echo json_encode($json_data);
     }
+
+    public function tenantGeneralcallList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $generalcallList = $this->general_call_model->tenantScopedList('general_calls', (int) $tenantId);
+        $this->load->view('admin/frontoffice/tenant_generalcall_list', ['generalcallList' => $generalcallList]);
+    }
+
+    public function tenantGeneralcallCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('name', 'Name', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('contact', 'Contact', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('date', 'Date', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('call_type', 'Call Type', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $newId = $this->general_call_model->tenantScopedInsert('general_calls', (int) $tenantId, [
+                'name'           => $this->input->post('name'),
+                'contact'        => $this->input->post('contact'),
+                'date'           => $this->input->post('date'),
+                'description'    => $this->input->post('description'),
+                'follow_up_date' => $this->input->post('follow_up_date'),
+                'call_duration'  => $this->input->post('call_duration'),
+                'note'           => $this->input->post('note'),
+                'call_type'      => $this->input->post('call_type'),
+            ]);
+            $this->load->view('admin/frontoffice/tenant_generalcall_create', ['created' => true, 'id' => $newId]);
+
+            return;
+        }
+
+        $this->load->view('admin/frontoffice/tenant_generalcall_create', ['created' => false]);
+    }
+
+    public function tenantGeneralcallEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $generalcall = $this->general_call_model->tenantScopedFind('general_calls', (int) $tenantId, (int) $id);
+        if (!$generalcall) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('name', 'Name', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('contact', 'Contact', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('date', 'Date', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('call_type', 'Call Type', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $this->general_call_model->tenantScopedUpdate('general_calls', (int) $tenantId, (int) $id, [
+                'name'           => $this->input->post('name'),
+                'contact'        => $this->input->post('contact'),
+                'date'           => $this->input->post('date'),
+                'description'    => $this->input->post('description'),
+                'follow_up_date' => $this->input->post('follow_up_date'),
+                'call_duration'  => $this->input->post('call_duration'),
+                'note'           => $this->input->post('note'),
+                'call_type'      => $this->input->post('call_type'),
+            ]);
+            $generalcall = $this->general_call_model->tenantScopedFind('general_calls', (int) $tenantId, (int) $id);
+            $this->load->view('admin/frontoffice/tenant_generalcall_edit', ['updated' => true, 'generalcall' => $generalcall]);
+
+            return;
+        }
+
+        $this->load->view('admin/frontoffice/tenant_generalcall_edit', ['updated' => false, 'generalcall' => $generalcall]);
+    }
+
+    public function tenantGeneralcallDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $deleted = $this->general_call_model->tenantScopedDelete('general_calls', (int) $tenantId, (int) $id);
+        $this->load->view('admin/frontoffice/tenant_generalcall_delete', ['deleted' => $deleted]);
+    }
 }

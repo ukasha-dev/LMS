@@ -72,4 +72,86 @@ class Reference extends Admin_Controller
         redirect('admin/reference');
     }
 
+    public function tenantReferenceList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $referenceList = $this->reference_model->tenantScopedList('reference', (int) $tenantId);
+        $this->load->view('admin/reference/tenant_reference_list', ['referenceList' => $referenceList]);
+    }
+
+    public function tenantReferenceCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('reference', 'Reference', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $newId = $this->reference_model->tenantScopedInsert('reference', (int) $tenantId, [
+                'reference'   => $this->input->post('reference'),
+                'description' => $this->input->post('description'),
+            ]);
+            $this->load->view('admin/reference/tenant_reference_create', ['created' => true, 'id' => $newId]);
+
+            return;
+        }
+
+        $this->load->view('admin/reference/tenant_reference_create', ['created' => false]);
+    }
+
+    public function tenantReferenceEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $reference = $this->reference_model->tenantScopedFind('reference', (int) $tenantId, (int) $id);
+        if (!$reference) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('reference', 'Reference', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $this->reference_model->tenantScopedUpdate('reference', (int) $tenantId, (int) $id, [
+                'reference'   => $this->input->post('reference'),
+                'description' => $this->input->post('description'),
+            ]);
+            $reference = $this->reference_model->tenantScopedFind('reference', (int) $tenantId, (int) $id);
+            $this->load->view('admin/reference/tenant_reference_edit', ['updated' => true, 'reference' => $reference]);
+
+            return;
+        }
+
+        $this->load->view('admin/reference/tenant_reference_edit', ['updated' => false, 'reference' => $reference]);
+    }
+
+    public function tenantReferenceDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $deleted = $this->reference_model->tenantScopedDelete('reference', (int) $tenantId, (int) $id);
+        $this->load->view('admin/reference/tenant_reference_delete', ['deleted' => $deleted]);
+    }
+
 }

@@ -137,4 +137,88 @@ class Expensehead extends Admin_Controller
         }
     }
 
+    public function tenantExpenseheadList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $expenseheadList = $this->expensehead_model->tenantScopedList('expense_head', (int) $tenantId);
+        $this->load->view('admin/expensehead/tenant_expensehead_list', ['expenseheadList' => $expenseheadList]);
+    }
+
+    public function tenantExpenseheadCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('expensehead', 'Expense Head', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $newId = $this->expensehead_model->tenantScopedInsert('expense_head', (int) $tenantId, [
+                'exp_category' => $this->input->post('expensehead'),
+                'description'  => $this->input->post('description'),
+                'is_active'    => 'yes',
+                'is_deleted'   => 'no',
+            ]);
+            $this->load->view('admin/expensehead/tenant_expensehead_create', ['created' => true, 'id' => $newId]);
+
+            return;
+        }
+
+        $this->load->view('admin/expensehead/tenant_expensehead_create', ['created' => false]);
+    }
+
+    public function tenantExpenseheadEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $expensehead = $this->expensehead_model->tenantScopedFind('expense_head', (int) $tenantId, (int) $id);
+        if (!$expensehead) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('expensehead', 'Expense Head', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $this->expensehead_model->tenantScopedUpdate('expense_head', (int) $tenantId, (int) $id, [
+                'exp_category' => $this->input->post('expensehead'),
+                'description'  => $this->input->post('description'),
+            ]);
+            $expensehead = $this->expensehead_model->tenantScopedFind('expense_head', (int) $tenantId, (int) $id);
+            $this->load->view('admin/expensehead/tenant_expensehead_edit', ['updated' => true, 'expensehead' => $expensehead]);
+
+            return;
+        }
+
+        $this->load->view('admin/expensehead/tenant_expensehead_edit', ['updated' => false, 'expensehead' => $expensehead]);
+    }
+
+    public function tenantExpenseheadDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $deleted = $this->expensehead_model->tenantScopedDelete('expense_head', (int) $tenantId, (int) $id);
+        $this->load->view('admin/expensehead/tenant_expensehead_delete', ['deleted' => $deleted]);
+    }
+
 }
