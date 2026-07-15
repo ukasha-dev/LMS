@@ -73,7 +73,7 @@ class Admin_Controller extends MY_Controller
                 'designation' => ['tenantdesignationlist'],
                 'leavetypes' => ['tenantleavetypeslist'],
                 'subject' => ['tenantsubjectlist'],
-                'grade' => ['tenantgradelist'],
+                'grade' => ['tenantgradelist', 'tenantgradecreate', 'tenantgradeedit', 'tenantgradedelete'],
                 'currency' => ['tenantcurrencylist'],
                 'language' => ['tenantlanguagelist'],
                 'feetype' => ['tenantfeetypelist'],

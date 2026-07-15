@@ -114,4 +114,99 @@ class Grade extends Admin_Controller
         $this->load->view('admin/grade/tenant_grade_list', ['gradeList' => $gradeList]);
     }
 
+    // The 3 methods below are this migration's first real WRITE cutover --
+    // every prior tenant* controller method has been read-only. Each one
+    // re-derives the tenant id from the session (never trusts client
+    // input for it) and delegates ownership enforcement to the model's
+    // tenantScoped* methods, which filter/inject tenant_id on every query.
+    // Deliberately new methods, not edits to the legacy index()/edit()/
+    // delete() above: those remain completely untouched for every school
+    // still on its own per-branch database.
+
+    public function tenantGradeCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('exam_type', 'Exam Type', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('name', 'Grade Name', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('mark_from', 'Mark From', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('mark_upto', 'Mark Upto', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('grade_point', 'Grade Point', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $newId = $this->grade_model->tenantScopedAdd((int) $tenantId, [
+                'exam_type'   => $this->input->post('exam_type'),
+                'name'        => $this->input->post('name'),
+                'mark_from'   => $this->input->post('mark_from'),
+                'mark_upto'   => $this->input->post('mark_upto'),
+                'point'       => $this->input->post('grade_point'),
+                'description' => $this->input->post('description'),
+            ]);
+            $this->load->view('admin/grade/tenant_grade_create', ['created' => true, 'id' => $newId]);
+
+            return;
+        }
+
+        $this->load->view('admin/grade/tenant_grade_create', ['created' => false]);
+    }
+
+    public function tenantGradeEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $grade = $this->grade_model->getTenantScopedGrade((int) $tenantId, (int) $id);
+        if (!$grade) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('exam_type', 'Exam Type', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('name', 'Grade Name', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('mark_from', 'Mark From', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('mark_upto', 'Mark Upto', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('grade_point', 'Grade Point', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $this->grade_model->tenantScopedAdd((int) $tenantId, [
+                'id'          => (int) $id,
+                'exam_type'   => $this->input->post('exam_type'),
+                'name'        => $this->input->post('name'),
+                'mark_from'   => $this->input->post('mark_from'),
+                'mark_upto'   => $this->input->post('mark_upto'),
+                'point'       => $this->input->post('grade_point'),
+                'description' => $this->input->post('description'),
+            ]);
+            $grade = $this->grade_model->getTenantScopedGrade((int) $tenantId, (int) $id);
+            $this->load->view('admin/grade/tenant_grade_edit', ['updated' => true, 'grade' => $grade]);
+
+            return;
+        }
+
+        $this->load->view('admin/grade/tenant_grade_edit', ['updated' => false, 'grade' => $grade]);
+    }
+
+    public function tenantGradeDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $deleted = $this->grade_model->tenantScopedDelete((int) $tenantId, (int) $id);
+        $this->load->view('admin/grade/tenant_grade_delete', ['deleted' => $deleted]);
+    }
+
 }

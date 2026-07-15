@@ -156,4 +156,42 @@ class Grade_model extends MY_Model
         return $this->db->where('tenant_id', $tenantId)->get('grades')->result_array();
     }
 
+    // The 3 methods below are real write operations, unlike every other
+    // tenantScoped* method added so far in this migration (which have all
+    // been read-only). Every one of them filters or injects tenant_id
+    // explicitly -- never trusting a bare $id -- so a tenant session can
+    // never read, modify, or delete another tenant's row even if it
+    // tampers with the id in a request. This is deliberately NOT the same
+    // pattern as the legacy get()/add()/remove() above, which trust `id`
+    // alone and would silently cross tenant boundaries if pointed at the
+    // shared school_saas table.
+
+    public function getTenantScopedGrade($tenantId, $id)
+    {
+        return $this->db->where('tenant_id', $tenantId)->where('id', $id)->get('grades')->row_array();
+    }
+
+    public function tenantScopedAdd($tenantId, array $data)
+    {
+        if (isset($data['id'])) {
+            $id = (int) $data['id'];
+            unset($data['id']);
+            $this->db->where('id', $id)->where('tenant_id', $tenantId)->update('grades', $data);
+
+            return $id;
+        }
+
+        $data['tenant_id'] = $tenantId;
+        $this->db->insert('grades', $data);
+
+        return $this->db->insert_id();
+    }
+
+    public function tenantScopedDelete($tenantId, $id)
+    {
+        $this->db->where('id', $id)->where('tenant_id', $tenantId)->delete('grades');
+
+        return $this->db->affected_rows() > 0;
+    }
+
 }

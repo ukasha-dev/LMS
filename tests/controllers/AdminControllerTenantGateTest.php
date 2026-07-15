@@ -383,6 +383,136 @@ final class AdminControllerTenantGateTest extends TestCase
         $this->assertSame(404, $examgroupBatchDeleteStatus);
     }
 
+    public function testTenantGradeCreateEditDeleteWorkForTheOwningTenant(): void
+    {
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        [$createStatus, $createBody] = $this->curlPost('admin/grade/tenantGradeCreate', [
+            'exam_type' => 'Terminal',
+            'name' => 'Isolation Test Grade',
+            'mark_from' => '90',
+            'mark_upto' => '100',
+            'grade_point' => '4.0',
+            'description' => 'created by AdminControllerTenantGateTest',
+        ]);
+        $this->assertSame(200, $createStatus);
+        $this->assertMatchesRegularExpression('/Grade created with id (\d+)/', $createBody, 'create must report the new row id');
+        preg_match('/Grade created with id (\d+)/', $createBody, $matches);
+        $newId = (int) $matches[1];
+
+        [$editGetStatus, $editGetBody] = $this->curlGet("admin/grade/tenantGradeEdit/{$newId}");
+        $this->assertSame(200, $editGetStatus);
+        $this->assertStringContainsString('Isolation Test Grade', $editGetBody);
+
+        [$editPostStatus, $editPostBody] = $this->curlPost("admin/grade/tenantGradeEdit/{$newId}", [
+            'exam_type' => 'Terminal',
+            'name' => 'Isolation Test Grade Updated',
+            'mark_from' => '90',
+            'mark_upto' => '100',
+            'grade_point' => '4.0',
+            'description' => 'updated by AdminControllerTenantGateTest',
+        ]);
+        $this->assertSame(200, $editPostStatus);
+        $this->assertStringContainsString('Isolation Test Grade Updated', $editPostBody);
+
+        [$deleteStatus, $deleteBody] = $this->curlGet("admin/grade/tenantGradeDelete/{$newId}");
+        $this->assertSame(200, $deleteStatus);
+        $this->assertStringContainsString('Grade deleted.', $deleteBody);
+
+        [$editAfterDeleteStatus, ] = $this->curlGet("admin/grade/tenantGradeEdit/{$newId}");
+        $this->assertSame(404, $editAfterDeleteStatus, 'the deleted row must no longer be reachable');
+    }
+
+    public function testTenantGradeWriteMethodsCannotTouchAnotherTenantsRow(): void
+    {
+        // Real cross-tenant isolation proof: tenant 25 creates a row, then
+        // a genuinely different real tenant (26) tries to edit and delete
+        // it BY ITS EXACT ID. Must 404 / report "no matching row" -- and
+        // tenant 25's row must be completely untouched afterward. This is
+        // the property tenantScopedAdd/tenantScopedDelete's explicit
+        // tenant_id filtering exists to guarantee.
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        [$createStatus, $createBody] = $this->curlPost('admin/grade/tenantGradeCreate', [
+            'exam_type' => 'Terminal',
+            'name' => 'Tenant 25 Owned Grade',
+            'mark_from' => '80',
+            'mark_upto' => '89',
+            'grade_point' => '3.5',
+            'description' => 'must never be touched by tenant 26',
+        ]);
+        $this->assertSame(200, $createStatus);
+        preg_match('/Grade created with id (\d+)/', $createBody, $matches);
+        $tenant25GradeId = (int) $matches[1];
+
+        $otherCookieJar = tempnam(sys_get_temp_dir(), 'admgate_test_other_');
+        $realCookieJar = $this->cookieJar;
+        $this->cookieJar = $otherCookieJar;
+
+        try {
+            [$otherLoginStatus, ] = $this->curlPostPilotLoginAs(26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!');
+            $this->assertContains($otherLoginStatus, [200, 302, 303, 307]);
+
+            [$crossEditGetStatus, ] = $this->curlGet("admin/grade/tenantGradeEdit/{$tenant25GradeId}");
+            $this->assertSame(404, $crossEditGetStatus, 'tenant 26 must not be able to view tenant 25\'s grade by id');
+
+            [$crossDeleteStatus, $crossDeleteBody] = $this->curlGet("admin/grade/tenantGradeDelete/{$tenant25GradeId}");
+            $this->assertSame(200, $crossDeleteStatus);
+            $this->assertStringContainsString('No matching grade found for this tenant.', $crossDeleteBody);
+        } finally {
+            $this->cookieJar = $realCookieJar;
+            @unlink($otherCookieJar);
+        }
+
+        [$stillThereStatus, $stillThereBody] = $this->curlGet("admin/grade/tenantGradeEdit/{$tenant25GradeId}");
+        $this->assertSame(200, $stillThereStatus, 'tenant 25\'s grade must still exist after tenant 26\'s attempted cross-tenant delete');
+        $this->assertStringContainsString('Tenant 25 Owned Grade', $stillThereBody);
+
+        [$cleanupStatus, ] = $this->curlGet("admin/grade/tenantGradeDelete/{$tenant25GradeId}");
+        $this->assertSame(200, $cleanupStatus);
+    }
+
+    private function curlPost(string $path, array $fields): array
+    {
+        $ch = curl_init(self::BASE_URL . $path);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_COOKIEJAR => $this->cookieJar,
+            CURLOPT_COOKIEFILE => $this->cookieJar,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => http_build_query($fields),
+        ]);
+        $body = curl_exec($ch);
+        $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        return [$status, $body];
+    }
+
+    private function curlPostPilotLoginAs(int $tenantId, string $email, string $password): array
+    {
+        $ch = curl_init(self::BASE_URL . 'pilotlogin/login');
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_COOKIEJAR => $this->cookieJar,
+            CURLOPT_COOKIEFILE => $this->cookieJar,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => http_build_query([
+                'tenant_id' => $tenantId,
+                'email' => $email,
+                'password' => $password,
+            ]),
+        ]);
+        $body = curl_exec($ch);
+        $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        return [$status, $body];
+    }
+
     private function curlPostPilotLogin(): array
     {
         $ch = curl_init(self::BASE_URL . 'pilotlogin/login');
