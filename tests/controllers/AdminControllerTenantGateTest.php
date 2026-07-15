@@ -1083,6 +1083,21 @@ final class AdminControllerTenantGateTest extends TestCase
         }
     }
 
+    public function testTenantPickuppointCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/pickuppoint/tenantPickuppointCreate',
+            ['name' => 'Isolation Test Pickup Point', 'latitude' => '24.8607', 'longitude' => '67.0011'],
+            'Pickup point created with id',
+            'admin/pickuppoint/tenantPickuppointEdit/',
+            'admin/pickuppoint/tenantPickuppointDelete/',
+            'Isolation Test Pickup Point',
+            'Pickup point deleted.',
+            'No matching pickup point found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
     private function curlPost(string $path, array $fields): array
     {
         $ch = curl_init(self::BASE_URL . $path);

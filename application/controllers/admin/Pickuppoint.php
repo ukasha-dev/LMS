@@ -414,4 +414,98 @@ class Pickuppoint extends Admin_Controller
         $result = $this->pickuppoint_model->getpickup_pointbyid($id);
         echo json_encode($result);
     }
+
+    // Scoped to the base pickup_point entity only (name/latitude/
+    // longitude, no FK) -- route assignment (route_pickup_point, the
+    // assign()/reorder() methods above) is a separate junction feature
+    // deliberately out of scope, same reasoning as Roles' permission
+    // assignment.
+
+    public function tenantPickuppointList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $pickuppointList = $this->pickuppoint_model->tenantScopedList('pickup_point', (int) $tenantId);
+        $this->load->view('admin/pickuppoint/tenant_pickuppoint_list', ['pickuppointList' => $pickuppointList]);
+    }
+
+    public function tenantPickuppointCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('name', 'Name', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('latitude', 'Latitude', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('longitude', 'Longitude', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $newId = $this->pickuppoint_model->tenantScopedInsert('pickup_point', (int) $tenantId, [
+                'name'      => $this->input->post('name'),
+                'latitude'  => $this->input->post('latitude'),
+                'longitude' => $this->input->post('longitude'),
+            ]);
+            $this->load->view('admin/pickuppoint/tenant_pickuppoint_create', ['created' => true, 'id' => $newId]);
+
+            return;
+        }
+
+        $this->load->view('admin/pickuppoint/tenant_pickuppoint_create', ['created' => false]);
+    }
+
+    public function tenantPickuppointEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $pickuppoint = $this->pickuppoint_model->tenantScopedFind('pickup_point', (int) $tenantId, (int) $id);
+        if (!$pickuppoint) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('name', 'Name', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('latitude', 'Latitude', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('longitude', 'Longitude', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $this->pickuppoint_model->tenantScopedUpdate('pickup_point', (int) $tenantId, (int) $id, [
+                'name'      => $this->input->post('name'),
+                'latitude'  => $this->input->post('latitude'),
+                'longitude' => $this->input->post('longitude'),
+            ]);
+            $pickuppoint = $this->pickuppoint_model->tenantScopedFind('pickup_point', (int) $tenantId, (int) $id);
+            $this->load->view('admin/pickuppoint/tenant_pickuppoint_edit', ['updated' => true, 'pickuppoint' => $pickuppoint]);
+
+            return;
+        }
+
+        $this->load->view('admin/pickuppoint/tenant_pickuppoint_edit', ['updated' => false, 'pickuppoint' => $pickuppoint]);
+    }
+
+    public function tenantPickuppointDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $deleted = $this->pickuppoint_model->tenantScopedDelete('pickup_point', (int) $tenantId, (int) $id);
+        $this->load->view('admin/pickuppoint/tenant_pickuppoint_delete', ['deleted' => $deleted]);
+    }
 }
