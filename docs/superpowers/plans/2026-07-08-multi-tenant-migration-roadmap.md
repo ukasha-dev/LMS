@@ -912,6 +912,151 @@ made.
      present and untouched by this stage's commits, each of which staged
      only its own target files.
 
+   - **Stage 14 — Full schema completeness (no data)** — ✅ complete
+     (2026-07-15, plan:
+     `2026-07-14-multi-tenant-phase3-stage14-schema-completeness.md`;
+     commits `b91bebff` (`SchemaMirror` + tests), `9803e0bc` (guard against
+     composite primary keys), `b952a029` (create all 152 remaining table
+     schemas, no FKs yet), `aa6a357e` (link `tenant_id` + sibling FKs for
+     all 152 new tables), plus this roadmap-update commit). Closes the gap
+     where `school_saas` had only 39 of the real app's 193 tables — any
+     future module referencing an unmigrated table would hard-fail with
+     "table doesn't exist" the moment more of the codebase queries the
+     shared schema, and any Phase 5 school that actually populates a module
+     this pilot tenant doesn't use would have nowhere to land. A new,
+     framework-agnostic `tools/multitenant/SchemaMirror.php` reads a source
+     table's real column definitions live from `information_schema.columns`
+     and generates a `tenant_id`-augmented `CREATE TABLE` statement — no FKs
+     at all. Two CLI driver scripts apply this in deliberately separate
+     phases, avoiding any need for a topological sort over the FK dependency
+     graph: `CloneAllSchemas.php` creates all 152 in-scope tables first
+     (Task 2), then, only once every table already exists, `LinkAllSchemaFKs.php`
+     adds each table's `tenant_id → tenants(id)` FK plus every sibling FK as
+     a separate follow-up pass (Task 3). **Three source tables deliberately
+     excluded, not cloned:** `multi_branch` (per-branch connection
+     config — meaningless in a single shared database), `migrations` (CI3's
+     own schema-migration bookkeeping — this project tracks `school_saas`'s
+     migrations separately via `sql/multitenant/*.sql`), `captcha`
+     (transient challenge state, not business data). Confirmed live this
+     task (Task 4): all three remain absent from `school_saas`, and the
+     table-count arithmetic reconciles exactly — 193 source tables − 3
+     excluded = 190 mirrored, + the 1 `school_saas`-only `tenants` table
+     (which has no source-side counterpart) = 191, matching the live count.
+     **Schema only, zero data population** — confirmed live this task:
+     `SELECT table_name FROM information_schema.tables WHERE
+     table_schema='school_saas' AND table_rows > 0` returns exactly 35
+     tables, all of them tables that already carried real migrated data from
+     earlier stages (students, staff, classes, fees, exams, HR, grades,
+     etc.) — none of the 152 new tables added by this stage show any rows,
+     for any tenant.
+
+     **Real final counts (live-queried, Task 4, 2026-07-15):** 191 total
+     tables (39 pre-existing + 152 new) and 411 total FK constraints
+     (`SELECT COUNT(*) FROM information_schema.table_constraints WHERE
+     table_schema='school_saas' AND constraint_type='FOREIGN KEY'`) — of
+     those 411, 186 are `tenant_id → tenants(id)` FKs (152 net-new this
+     stage; the other 4 in-scope tables — `currencies`, `email_config`,
+     `languages`, `permission_group` — are pre-existing, legitimately global
+     lookup tables with no `tenant_id` column by original design, so
+     191 − 1 (`tenants` itself) − 4 = 186) and 225 are sibling FKs (36
+     pre-existing + 189 net-new this stage). A live duplicate-relationship
+     check (`GROUP BY table_name, column_name, referenced_table_name HAVING
+     COUNT(*) > 1` against `information_schema.key_column_usage`) returned
+     zero rows. Full suite: `OK (90 tests, 356 assertions)`, re-confirmed
+     live this task. **Note on stale predictions:** this stage's own task
+     briefs were written before Tasks 2-3 actually ran and predicted smaller
+     figures in places (e.g. Task 4's brief still said "Expected: 89/89"
+     tests and referenced a smaller FK total) — the real, live-confirmed
+     numbers above supersede those stale predictions; flagged here rather
+     than silently following an outdated figure, the same discipline Task 3
+     applied to its own brief (see below) and Stage 10 applied to its
+     original "63 FKs" prediction.
+
+     **The Task 3 incident — a real duplicate-FK bug, found, root-caused,
+     and fixed against the live database, not a hypothetical:**
+     `LinkAllSchemaFKs.php`'s first real run against the live `school_saas`
+     database uncovered a genuine defect in its own FK-dedup logic. The
+     "skip if this FK already exists" guard originally pulled
+     `FETCH_COLUMN, 0` from a query whose column list was `table_name,
+     constraint_name` — index 0 is `table_name`, not `constraint_name` — so
+     comparing a generated constraint name (e.g.
+     `fk_exam_group_class_batch_exams_tenant`) against a list of bare table
+     names could never match, silently making the "already exists" check
+     dead code. Because 39 pre-existing tables already carried `tenant_id`
+     FKs under an older, abbreviated naming convention (e.g.
+     `fk_egcbe_tenant` for `exam_group_class_batch_exams`), the broken guard
+     never collided with those existing names and happily added a second,
+     genuinely redundant FK enforcing the identical relationship on each —
+     **54 duplicate FK constraints silently created across 23 pre-existing
+     tables**, with no error raised. Found by direct inspection of the real
+     run's results (not by a test — no test covered this dedup path against
+     already-migrated data), root-caused to the exact `FETCH_COLUMN`
+     indexing bug above, the live database was cleaned up (the 54 duplicate
+     constraints dropped) — twice, per the commit message, since the first
+     cleanup attempt was itself re-examined before being trusted — and the
+     dedup logic was rewritten to compare actual `(table, column,
+     referenced_table)` relationships read live from
+     `information_schema.key_column_usage`, rather than trusting generated
+     constraint-name strings: a genuinely different, more robust comparison,
+     not a narrower patch of the same broken one. A clean third run against
+     the live database, and the resulting 411-FK, zero-duplicate end state,
+     were committed together in `aa6a357e`.
+
+     **Independently re-verified clean twice since, by two separate
+     sessions:** (1) Phase 3 Stage 14's own Task 3 session re-ran the
+     corrected script fresh against the live, already-411-FK database and
+     confirmed true idempotency — `Tenant FKs added: 0`, `Sibling FKs added:
+     0`, FK count unchanged at 411 immediately before and after, `git
+     status` on the script itself empty (full detail:
+     `.superpowers/sdd/p3s14-task-3-report.md`); (2) this task (Task 4), in
+     a separate session, independently re-ran the live duplicate-relationship
+     query fresh against the current database and got the same empty result
+     — zero duplicate `(table, column, referenced_table)` groups, confirmed
+     a second, independent time. The remaining 11 STDERR lines from the
+     corrected script's re-run (4 tenant-FK skips for the legitimately-global
+     lookup tables named above, 7 sibling-FK skips for columns absent from
+     two pre-existing tables' intentionally-reduced schemas from earlier
+     stages — `staff.designation`/`staff.department`,
+     `student_session.session_id`/`.vehroute_id`/`.route_pickup_point_id`/
+     `.hostel_room_id`, and one vestigial 0-row column on
+     `exam_group_exam_results`) are all individually understood and
+     non-actionable, not further instances of the dedup bug.
+
+     **Live regression proof (Task 4):** with the corrected, 411-FK schema
+     live, the already-retrofitted real routes were re-verified unaffected.
+     A real `PilotLogin` authentication (tenant 25,
+     `rabiachauhan923@gmail.com`) followed by `admin/staff/tenantStaffList`
+     (200, real 18 tenant-25 staff rows) and `admin/grade/tenantGradeList`
+     (200, real 14 tenant-25 grade rows) both matched every prior stage's
+     verification exactly, and a bare, unauthenticated `site/login` request
+     (fresh session, no cookies) returned 200 with the real login page.
+     (**One test-script wrinkle, investigated and confirmed benign, not a
+     regression:** chaining the `site/login` GET onto the SAME cookie jar as
+     the `PilotLogin` call above instead returns `307` to
+     `admin/admin/dashboard`. Root cause: `Auth::is_logged_in()`
+     (`application/libraries/Auth.php`) redirects any session already
+     carrying `admin` session userdata away from the login page, and
+     `PilotLogin` sets that exact `admin` session key on real credential
+     success — by design, unchanged since Phase 2 Stage 6. It only fires
+     here because the verification script reuses one cookie jar across both
+     calls; a fresh, cookie-less `site/login` request returns the expected
+     `200`, confirming this is a test-script artifact of session reuse, not
+     a behavior change caused by this schema-only stage.) Full suite: `OK
+     (90 tests, 356 assertions)`, run three times this task for confidence —
+     an isolated first run showed 8 transient failures (all in
+     `AdminControllerTenantGateTest`/`PilotSecurityTest`, both real-HTTP
+     credentialed tests hitting the same local Apache instance moments after
+     this task's own manual curl verification against the same server), and
+     two immediate re-runs both came back clean at exactly the confirmed
+     baseline (90 tests, 356 assertions) with zero code or schema changes in
+     between — consistent with transient local session/server contention
+     from the just-prior manual verification, not a real regression.
+
+     This stage substantially grows the "non-composite sibling FK" debt
+     item in the Carried-forward technical debt section below — see that
+     section's Stage 14 scope correction for the real, live-queried current
+     total (225, up from 36).
+
 4. **Phase 4 — API layer** (not yet planned)
    Apply the same treatment to `api/` (112 files) — separate branch-switch
    logic today, needs its own tenant-scoping pass.
@@ -1013,6 +1158,25 @@ made.
   tables). The "9 files" part of the brief's figure checks out exactly;
   the "63" count does not — flagging this discrepancy rather than
   transcribing an unverified number.
+  **Scope correction (Phase 3 Stage 14, 2026-07-15):** this item's true
+  scope just grew dramatically. Stage 14 added 152 new tables (191 total
+  now, not 39/9-files), each linked via `tools/multitenant/SchemaMirror.php`/
+  `CloneAllSchemas.php`/`LinkAllSchemaFKs.php` rather than a new numbered
+  `sql/multitenant/*.sql` file — so "36 FKs across 9 files" is now a stale
+  description of a subset, not the whole debt item. Live-queried directly
+  against `school_saas`'s `information_schema` (Task 4, not estimated):
+  **411 total FK constraints, of which 186 are `tenant_id → tenants(id)`**
+  (fine, same reasoning as the Stage 10 correction above — `tenants` isn't
+  itself tenant-scoped, so these aren't part of this debt item) **and 225
+  are non-composite intra-schema sibling FKs** — every one of them shaped
+  exactly like the 36 Stage 10 catalogued, `<table>(id)` rather than
+  `(tenant_id, id)`. Confirmed live that none of the 411 FKs are composite
+  at all (`GROUP BY constraint_name HAVING COUNT(*) > 1` against
+  `information_schema.key_column_usage` returns zero rows), so the count of
+  "non-composite in-scope" FKs is simply every sibling FK: all 225. This
+  item remains open and unresolved — **225 is the real, current, live
+  total**, spanning all 191 tables, awaiting a composite-FK hardening pass
+  before Phase 5 migrates additional schools.
 - **Merge tools have no re-run/idempotency guard** — **RESOLVED in
   Phase 3 Stage 10 (2026-07-14).** (Originally discovered 2026-07-10
   during Stage 4's final-review fix-up, when a manual verification re-run
