@@ -83,7 +83,6 @@ class Admin_Controller extends MY_Controller
                 'feediscount' => ['tenantfeediscountlist', 'tenantfeediscountcreate', 'tenantfeediscountedit', 'tenantfeediscountdelete'],
                 'feemaster' => ['tenantfeesessiongrouplist'],
                 'onlineadmission' => ['tenantonlineadmissionfieldslist'],
-                'resume' => ['tenantresumesettingsfieldslist'],
                 'notification' => ['tenantnotificationsettinglist'],
                 'examgroup' => ['tenantexamresultslist', 'tenantexamgroupbatchexamslist', 'tenantexamgroupbatchexamsubjectslist', 'tenantexamgroupbatchexamstudentslist'],
                 'feegroup' => ['tenantfeegrouplist', 'tenantfeegroupfeetypelist', 'tenantfeegroupcreate', 'tenantfeegroupedit', 'tenantfeegroupdelete'],
@@ -111,6 +110,7 @@ class Admin_Controller extends MY_Controller
                 'contenttype' => ['tenantcontenttypelist', 'tenantcontenttypecreate', 'tenantcontenttypeedit', 'tenantcontenttypedelete'],
                 'staffattendance' => ['tenantstaffattendancesave', 'tenantstaffattendancelist'],
                 'subjectattendence' => ['tenantsubjectattendancesave', 'tenantsubjectattendancelist'],
+                'resume' => ['tenantresumesettingsfieldslist', 'tenantresumeworksave', 'tenantresumeeducationsave', 'tenantresumeskillsave', 'tenantresumereferencesave', 'tenantresumedetailslist'],
             ];
             if (!isset($allowedTenantRoutes[$activeController]) || !in_array($activeMethod, $allowedTenantRoutes[$activeController], true)) {
                 show_404();

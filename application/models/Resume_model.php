@@ -259,6 +259,62 @@ class Resume_model extends MY_Model
         }
     }
 
+    // Tenant-safe replace-all-rows-for-this-student helper, shared by the 4
+    // resume detail categories below (mirrors the legacy delete-then-insert
+    // shape of add_work/add_education/add_skill/add_referensh). The delete
+    // only removes THIS tenant's existing rows for the student, and every
+    // inserted row is stamped with tenant_id. Callers must already have
+    // verified $studentId belongs to this tenant via tenantScopedFind
+    // against `students` before calling any of the 4 wrappers below (see
+    // Resume::tenantResume*Save).
+    private function tenantScopedReplaceStudentRows(string $table, int $tenantId, int $studentId, array $rows): int
+    {
+        $this->db->trans_start();
+        $this->db->trans_strict(false);
+
+        $this->db->where('student_id', $studentId)->where('tenant_id', $tenantId)->delete($table);
+
+        $saved = 0;
+        foreach ($rows as $row) {
+            $row['student_id'] = $studentId;
+            $row['tenant_id']  = $tenantId;
+            $this->db->insert($table, $row);
+            $saved++;
+        }
+
+        $this->db->trans_complete();
+
+        if ($this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+
+            return 0;
+        }
+
+        $this->db->trans_commit();
+
+        return $saved;
+    }
+
+    public function tenantScopedReplaceWorkExperience(int $tenantId, int $studentId, array $rows): int
+    {
+        return $this->tenantScopedReplaceStudentRows('student_work_experience', $tenantId, $studentId, $rows);
+    }
+
+    public function tenantScopedReplaceEducation(int $tenantId, int $studentId, array $rows): int
+    {
+        return $this->tenantScopedReplaceStudentRows('student_educational_details', $tenantId, $studentId, $rows);
+    }
+
+    public function tenantScopedReplaceSkills(int $tenantId, int $studentId, array $rows): int
+    {
+        return $this->tenantScopedReplaceStudentRows('student_skills_detail', $tenantId, $studentId, $rows);
+    }
+
+    public function tenantScopedReplaceReferences(int $tenantId, int $studentId, array $rows): int
+    {
+        return $this->tenantScopedReplaceStudentRows('student_refrence', $tenantId, $studentId, $rows);
+    }
+
     public function getformfields(){
         $this->db->select('*');
         $this->db->from('resume_settings_fields');

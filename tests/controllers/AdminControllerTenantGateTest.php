@@ -1381,6 +1381,120 @@ final class AdminControllerTenantGateTest extends TestCase
             ->execute([$date]);
     }
 
+    public function testTenantResumeWorkSaveRejectsForgedStudentIdAndIsolatesPerTenant(): void
+    {
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        try {
+            // Tenant 25 saves work experience for its own student #1 -- must succeed.
+            [$saveStatus, $saveBody] = $this->curlPost('admin/resume/tenantResumeWorkSave', [
+                'student_id' => 1,
+                'total_work_count' => [0],
+                'institute_0' => 'Isolation Test Institute',
+                'designation_0' => 'Engineer',
+                'year_0' => '2020',
+                'location_0' => 'Test City',
+                'detail_0' => 'details',
+            ]);
+            $this->assertSame(200, $saveStatus);
+            $this->assertStringContainsString('Saved 1 work experience record(s).', $saveBody);
+
+            [$listStatus, $listBody] = $this->curlGet('admin/resume/tenantResumeDetailsList/1');
+            $this->assertSame(200, $listStatus);
+            $this->assertStringContainsString('Isolation Test Institute', $listBody);
+
+            $otherCookieJar = tempnam(sys_get_temp_dir(), 'admgate_test_other_');
+            $realCookieJar = $this->cookieJar;
+            $this->cookieJar = $otherCookieJar;
+
+            try {
+                [$otherLoginStatus, ] = $this->curlPostPilotLoginAs(26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!');
+                $this->assertContains($otherLoginStatus, [200, 302, 303, 307]);
+
+                // Forgery: tenant 26 references tenant 25's student #1 --
+                // the shared parent-level FK -- must 404 the whole request.
+                [$forgeStatus, ] = $this->curlPost('admin/resume/tenantResumeWorkSave', [
+                    'student_id' => 1,
+                    'total_work_count' => [0],
+                    'institute_0' => 'forged',
+                    'designation_0' => 'forged',
+                    'year_0' => '2020',
+                    'location_0' => 'forged',
+                    'detail_0' => 'forged',
+                ]);
+                $this->assertSame(404, $forgeStatus);
+
+                // Tenant 26 must not be able to view tenant 25's student's resume details either.
+                [$crossListStatus, ] = $this->curlGet('admin/resume/tenantResumeDetailsList/1');
+                $this->assertSame(404, $crossListStatus);
+            } finally {
+                $this->cookieJar = $realCookieJar;
+                @unlink($otherCookieJar);
+            }
+
+            // Tenant 25's original row must be untouched by the forgery attempt.
+            [$finalListStatus, $finalListBody] = $this->curlGet('admin/resume/tenantResumeDetailsList/1');
+            $this->assertSame(200, $finalListStatus);
+            $this->assertStringContainsString('Isolation Test Institute', $finalListBody);
+        } finally {
+            (new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', ''))
+                ->prepare('DELETE FROM student_work_experience WHERE student_id = 1 AND tenant_id = 25')
+                ->execute();
+        }
+    }
+
+    public function testTenantResumeEducationSkillReferenceSaveRoundTripForOwningTenant(): void
+    {
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        try {
+            [$eduStatus, $eduBody] = $this->curlPost('admin/resume/tenantResumeEducationSave', [
+                'student_id' => 1,
+                'total_education_count' => [0],
+                'course_0' => 'B.Sc',
+                'university_0' => 'Isolation Test University',
+                'education_year_0' => '2018',
+                'education_detail_0' => 'details',
+            ]);
+            $this->assertSame(200, $eduStatus);
+            $this->assertStringContainsString('Saved 1 education record(s).', $eduBody);
+
+            [$skillStatus, $skillBody] = $this->curlPost('admin/resume/tenantResumeSkillSave', [
+                'student_id' => 1,
+                'total_skill_count' => [0],
+                'skill_category_0' => 'Isolation Test Skill',
+                'skill_detail_0' => 'details',
+            ]);
+            $this->assertSame(200, $skillStatus);
+            $this->assertStringContainsString('Saved 1 skills record(s).', $skillBody);
+
+            [$refStatus, $refBody] = $this->curlPost('admin/resume/tenantResumeReferenceSave', [
+                'student_id' => 1,
+                'total_reference_count' => [0],
+                'reference_name_0' => 'Isolation Test Reference',
+                'relation_0' => 'Friend',
+                'reference_age_0' => '30',
+                'profession_0' => 'Teacher',
+                'contact_0' => '1234567890',
+            ]);
+            $this->assertSame(200, $refStatus);
+            $this->assertStringContainsString('Saved 1 references record(s).', $refBody);
+
+            [$listStatus, $listBody] = $this->curlGet('admin/resume/tenantResumeDetailsList/1');
+            $this->assertSame(200, $listStatus);
+            $this->assertStringContainsString('Isolation Test University', $listBody);
+            $this->assertStringContainsString('Isolation Test Skill', $listBody);
+            $this->assertStringContainsString('Isolation Test Reference', $listBody);
+        } finally {
+            $pdo = new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', '');
+            $pdo->exec('DELETE FROM student_educational_details WHERE student_id = 1 AND tenant_id = 25');
+            $pdo->exec('DELETE FROM student_skills_detail WHERE student_id = 1 AND tenant_id = 25');
+            $pdo->exec('DELETE FROM student_refrence WHERE student_id = 1 AND tenant_id = 25');
+        }
+    }
+
     private function curlPost(string $path, array $fields): array
     {
         $ch = curl_init(self::BASE_URL . $path);

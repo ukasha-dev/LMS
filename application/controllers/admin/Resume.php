@@ -424,7 +424,133 @@ class Resume extends Admin_Controller
         $this->load->view('admin/resume/tenant_resume_settings_fields_list', ['resumeSettingsFieldsList' => $resumeSettingsFieldsList]);
     }
 
+    // Every tenantResume*Save() below shares the same shape as the legacy
+    // add_work/add_education/add_skill/add_referensh: delete this student's
+    // existing rows for the category, then bulk-insert the posted set. The
+    // one FK (student_id) is verified once via tenantScopedFind before any
+    // write; a forged student_id 404s the whole request rather than
+    // silently attaching detail rows to another tenant's student.
+    private function tenantVerifyStudentOrFail(int $tenantId, int $studentId): bool
+    {
+        return (bool) $this->student_model->tenantScopedFind('students', $tenantId, $studentId);
+    }
 
+    public function tenantResumeWorkSave()
+    {
+        $tenantId  = $this->session->userdata('admin_tenant_id');
+        $studentId = (int) $this->input->post('student_id');
+        if (!$tenantId || !$this->tenantVerifyStudentOrFail((int) $tenantId, $studentId)) {
+            show_404();
 
+            return;
+        }
+
+        $totalRows = $this->input->post('total_work_count') ?: [];
+        $rows      = [];
+        foreach ($totalRows as $rowKey) {
+            $rows[] = [
+                'institute'   => $this->input->post('institute_' . $rowKey),
+                'designation' => $this->input->post('designation_' . $rowKey),
+                'year'        => $this->input->post('year_' . $rowKey),
+                'location'    => $this->input->post('location_' . $rowKey),
+                'detail'      => $this->input->post('detail_' . $rowKey),
+            ];
+        }
+
+        $savedCount = $this->resume_model->tenantScopedReplaceWorkExperience((int) $tenantId, $studentId, $rows);
+        $this->load->view('admin/resume/tenant_resume_save', ['savedCount' => $savedCount, 'category' => 'work experience']);
+    }
+
+    public function tenantResumeEducationSave()
+    {
+        $tenantId  = $this->session->userdata('admin_tenant_id');
+        $studentId = (int) $this->input->post('student_id');
+        if (!$tenantId || !$this->tenantVerifyStudentOrFail((int) $tenantId, $studentId)) {
+            show_404();
+
+            return;
+        }
+
+        $totalRows = $this->input->post('total_education_count') ?: [];
+        $rows      = [];
+        foreach ($totalRows as $rowKey) {
+            $rows[] = [
+                'course'           => $this->input->post('course_' . $rowKey),
+                'university'       => $this->input->post('university_' . $rowKey),
+                'education_year'   => $this->input->post('education_year_' . $rowKey),
+                'education_detail' => $this->input->post('education_detail_' . $rowKey),
+            ];
+        }
+
+        $savedCount = $this->resume_model->tenantScopedReplaceEducation((int) $tenantId, $studentId, $rows);
+        $this->load->view('admin/resume/tenant_resume_save', ['savedCount' => $savedCount, 'category' => 'education']);
+    }
+
+    public function tenantResumeSkillSave()
+    {
+        $tenantId  = $this->session->userdata('admin_tenant_id');
+        $studentId = (int) $this->input->post('student_id');
+        if (!$tenantId || !$this->tenantVerifyStudentOrFail((int) $tenantId, $studentId)) {
+            show_404();
+
+            return;
+        }
+
+        $totalRows = $this->input->post('total_skill_count') ?: [];
+        $rows      = [];
+        foreach ($totalRows as $rowKey) {
+            $rows[] = [
+                'skill_category' => $this->input->post('skill_category_' . $rowKey),
+                'skill_detail'   => $this->input->post('skill_detail_' . $rowKey),
+            ];
+        }
+
+        $savedCount = $this->resume_model->tenantScopedReplaceSkills((int) $tenantId, $studentId, $rows);
+        $this->load->view('admin/resume/tenant_resume_save', ['savedCount' => $savedCount, 'category' => 'skills']);
+    }
+
+    public function tenantResumeReferenceSave()
+    {
+        $tenantId  = $this->session->userdata('admin_tenant_id');
+        $studentId = (int) $this->input->post('student_id');
+        if (!$tenantId || !$this->tenantVerifyStudentOrFail((int) $tenantId, $studentId)) {
+            show_404();
+
+            return;
+        }
+
+        $totalRows = $this->input->post('total_reference_count') ?: [];
+        $rows      = [];
+        foreach ($totalRows as $rowKey) {
+            $rows[] = [
+                'name'       => $this->input->post('reference_name_' . $rowKey),
+                'relation'   => $this->input->post('relation_' . $rowKey),
+                'age'        => $this->input->post('reference_age_' . $rowKey),
+                'profession' => $this->input->post('profession_' . $rowKey),
+                'contact'    => $this->input->post('contact_' . $rowKey),
+            ];
+        }
+
+        $savedCount = $this->resume_model->tenantScopedReplaceReferences((int) $tenantId, $studentId, $rows);
+        $this->load->view('admin/resume/tenant_resume_save', ['savedCount' => $savedCount, 'category' => 'references']);
+    }
+
+    public function tenantResumeDetailsList($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId || !$this->tenantVerifyStudentOrFail((int) $tenantId, (int) $id)) {
+            show_404();
+
+            return;
+        }
+
+        $data = [
+            'workExperience' => $this->resume_model->tenantScopedList('student_work_experience', (int) $tenantId, ['student_id' => (int) $id]),
+            'education'      => $this->resume_model->tenantScopedList('student_educational_details', (int) $tenantId, ['student_id' => (int) $id]),
+            'skills'         => $this->resume_model->tenantScopedList('student_skills_detail', (int) $tenantId, ['student_id' => (int) $id]),
+            'references'     => $this->resume_model->tenantScopedList('student_refrence', (int) $tenantId, ['student_id' => (int) $id]),
+        ];
+        $this->load->view('admin/resume/tenant_resume_details_list', $data);
+    }
 
 }
