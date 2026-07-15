@@ -1128,6 +1128,82 @@ final class AdminControllerTenantGateTest extends TestCase
         );
     }
 
+    public function testTenantStaffAttendanceSaveRejectsForgedForeignKeysAndIsolatesPerTenant(): void
+    {
+        $date = '2026-01-15';
+
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        // Tenant 25 saves attendance for its own staff #1 against its own
+        // attendance type #1 (Present) -- must succeed.
+        [$saveStatus, $saveBody] = $this->curlPost('admin/staffattendance/tenantStaffAttendanceSave', [
+            'staff_ids' => [1],
+            'date' => $date,
+            'attendencetype1' => 1,
+            'remark1' => 'present via isolation test',
+        ]);
+        $this->assertSame(200, $saveStatus);
+        $this->assertStringContainsString('Attendance saved for 1 staff member(s).', $saveBody);
+
+        [$listStatus, $listBody] = $this->curlGet('admin/staffattendance/tenantStaffAttendanceList?date=' . $date);
+        $this->assertSame(200, $listStatus);
+        $this->assertStringContainsString('Staff #1', $listBody);
+        $this->assertStringContainsString('type #1', $listBody);
+
+        $otherCookieJar = tempnam(sys_get_temp_dir(), 'admgate_test_other_');
+        $realCookieJar = $this->cookieJar;
+        $this->cookieJar = $otherCookieJar;
+
+        try {
+            [$otherLoginStatus, ] = $this->curlPostPilotLoginAs(26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!');
+            $this->assertContains($otherLoginStatus, [200, 302, 303, 307]);
+
+            // Forgery 1: tenant 26 references tenant 25's staff #1 with its
+            // own (legitimately owned) attendance type -- must be dropped.
+            [$forgeStaffStatus, $forgeStaffBody] = $this->curlPost('admin/staffattendance/tenantStaffAttendanceSave', [
+                'staff_ids' => [1],
+                'date' => $date,
+                'attendencetype1' => 7,
+                'remark1' => 'forged staff id',
+            ]);
+            $this->assertSame(200, $forgeStaffStatus);
+            $this->assertStringContainsString('Attendance saved for 0 staff member(s).', $forgeStaffBody);
+
+            // Forgery 2: tenant 26 references its own staff #19 but tenant
+            // 25's attendance type #1 -- must also be dropped.
+            [$forgeTypeStatus, $forgeTypeBody] = $this->curlPost('admin/staffattendance/tenantStaffAttendanceSave', [
+                'staff_ids' => [19],
+                'date' => $date,
+                'attendencetype19' => 1,
+                'remark19' => 'forged attendance type id',
+            ]);
+            $this->assertSame(200, $forgeTypeStatus);
+            $this->assertStringContainsString('Attendance saved for 0 staff member(s).', $forgeTypeBody);
+
+            // Tenant 26 must not see tenant 25's attendance row at all.
+            [$crossListStatus, $crossListBody] = $this->curlGet('admin/staffattendance/tenantStaffAttendanceList?date=' . $date);
+            $this->assertSame(200, $crossListStatus);
+            $this->assertStringNotContainsString('Staff #1 —', $crossListBody);
+        } finally {
+            $this->cookieJar = $realCookieJar;
+            @unlink($otherCookieJar);
+        }
+
+        // Tenant 25's original row must be untouched by both forgery attempts.
+        [$finalListStatus, $finalListBody] = $this->curlGet('admin/staffattendance/tenantStaffAttendanceList?date=' . $date);
+        $this->assertSame(200, $finalListStatus);
+        $this->assertStringContainsString('Staff #1', $finalListBody);
+        $this->assertStringContainsString('type #1', $finalListBody);
+
+        // No tenant delete endpoint exists for this entity yet -- clean up
+        // the row this test created directly so it doesn't linger as stray
+        // test data in a shared database.
+        (new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', ''))
+            ->prepare('DELETE FROM staff_attendance WHERE date = ? AND tenant_id = 25')
+            ->execute([$date]);
+    }
+
     private function curlPost(string $path, array $fields): array
     {
         $ch = curl_init(self::BASE_URL . $path);

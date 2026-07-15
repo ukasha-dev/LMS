@@ -176,4 +176,79 @@ class Staffattendance extends Admin_Controller
         $this->load->view("layout/footer");
     }
 
+    // Tenant-safe batch save. Mirrors index()'s "saveattendence" branch but
+    // never trusts a posted staff_id or staff_attendance_type_id: both sets
+    // are batch-verified against this tenant via tenantScopedBatchFind
+    // before any write, and any row referencing an id this tenant doesn't
+    // own is silently dropped (not inserted under a guessed tenant_id).
+    public function tenantStaffAttendanceSave()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        if ($this->input->method() !== 'post') {
+            show_404();
+
+            return;
+        }
+
+        $staffIds = $this->input->post('staff_ids') ?: [];
+        $date     = $this->input->post('date');
+
+        $ownedStaff = $this->staff_model->tenantScopedBatchFind('staff', (int) $tenantId, 'id', $staffIds);
+
+        $typeIds = [];
+        foreach ($staffIds as $staffId) {
+            $typeIds[] = (int) $this->input->post('attendencetype' . $staffId);
+        }
+        $ownedTypes = $this->staffattendancemodel->tenantScopedBatchFind('staff_attendance_type', (int) $tenantId, 'id', $typeIds);
+
+        $attendanceArray = [];
+        foreach ($staffIds as $staffId) {
+            $staffId = (int) $staffId;
+            $typeId  = (int) $this->input->post('attendencetype' . $staffId);
+
+            if (!isset($ownedStaff[$staffId]) || !isset($ownedTypes[$typeId])) {
+                continue;
+            }
+
+            $attendanceArray[] = [
+                'staff_id'                 => $staffId,
+                'staff_attendance_type_id' => $typeId,
+                'remark'                   => (string) $this->input->post('remark' . $staffId),
+                'in_time'                  => null,
+                'out_time'                 => null,
+                'date'                     => $date,
+                'is_active'                => 1,
+                'created_at'               => date('Y-m-d H:i:s'),
+            ];
+        }
+
+        $savedCount = $this->staffattendancemodel->tenantScopedAddOrUpdate($attendanceArray, (int) $tenantId);
+        $this->load->view('admin/staffattendance/tenant_staff_attendance_save', ['savedCount' => $savedCount]);
+    }
+
+    public function tenantStaffAttendanceList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $where = [];
+        $date  = $this->input->get('date');
+        if ($date) {
+            $where['date'] = $date;
+        }
+
+        $attendanceList = $this->staffattendancemodel->tenantScopedList('staff_attendance', (int) $tenantId, $where);
+        $this->load->view('admin/staffattendance/tenant_staff_attendance_list', ['attendanceList' => $attendanceList]);
+    }
+
 }

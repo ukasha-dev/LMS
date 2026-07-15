@@ -93,4 +93,23 @@ class MY_Model extends CI_Model {
         return $this->db->affected_rows() > 0;
     }
 
+    // Batch analogue of tenantScopedFind, for FK-ownership checks against a
+    // whole posted set at once (e.g. a batch-attendance save) instead of one
+    // query per row. Returns an id-keyed map so callers can do O(1)
+    // membership tests; any id not present in the map is not owned by this
+    // tenant and must be dropped, not guessed at.
+    public function tenantScopedBatchFind(string $table, int $tenantId, string $idColumn, array $ids): array
+    {
+        $ids = array_unique(array_filter(array_map('intval', $ids)));
+        if (empty($ids)) {
+            return [];
+        }
+
+        $rows = $this->db->where('tenant_id', $tenantId)
+            ->where_in($idColumn, $ids)
+            ->get($table)->result_array();
+
+        return array_column($rows, null, $idColumn);
+    }
+
 }

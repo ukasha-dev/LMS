@@ -42,6 +42,49 @@ class Staffattendancemodel extends MY_Model {
         }    
     }
 
+    // Tenant-safe batch analogue of addorUpdate() above. Every write is
+    // scoped to $tenantId: the existence check filters by tenant_id (so a
+    // stray staff_id/date pair belonging to another tenant is never
+    // silently updated), and every insert stamps tenant_id explicitly.
+    // Callers must already have verified staff_id/staff_attendance_type_id
+    // ownership before calling this (see Staffattendance::tenantStaffAttendanceSave).
+    public function tenantScopedAddOrUpdate(array $attendances, int $tenantId): int
+    {
+        $this->db->trans_start();
+        $this->db->trans_strict(false);
+
+        $saved = 0;
+        foreach ($attendances as $attendance) {
+            $attendance['tenant_id'] = $tenantId;
+
+            $this->db->where('staff_id', $attendance['staff_id']);
+            $this->db->where('date', $attendance['date']);
+            $this->db->where('tenant_id', $tenantId);
+            $query = $this->db->get('staff_attendance');
+
+            if ($query->num_rows() > 0) {
+                $this->db->where('id', $query->row()->id);
+                $this->db->where('tenant_id', $tenantId);
+                $this->db->update('staff_attendance', $attendance);
+            } else {
+                $this->db->insert('staff_attendance', $attendance);
+            }
+            $saved++;
+        }
+
+        $this->db->trans_complete();
+
+        if ($this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+
+            return 0;
+        }
+
+        $this->db->trans_commit();
+
+        return $saved;
+    }
+
     public function get($id = null) {
         $this->db->select()->join("staff", "staff.id = staff_attendance.staff_id")->from('staff_attendance');
         $this->db->where("staff.is_active", 1);
