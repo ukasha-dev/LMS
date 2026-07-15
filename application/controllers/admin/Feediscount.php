@@ -255,4 +255,99 @@ class Feediscount extends Admin_Controller
         $this->load->view('admin/feediscount/tenant_fee_discount_list', ['feeDiscountList' => $feeDiscountList]);
     }
 
+    // Scoped to the base fees_discounts entity only (name/code/type/
+    // amount/percentage/discount_limit/expire_date -- session_id is
+    // nullable and not required for a valid discount definition).
+    // assign()/studentdiscount()/applydiscount() above are a separate,
+    // more complex feature (assigns a discount to specific students by
+    // class/section/category/gender, with real financial state) --
+    // deliberately out of scope here, same reasoning as excluding Roles'
+    // permission-assignment feature.
+
+    public function tenantFeeDiscountCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('name', 'Name', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('code', 'Code', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('type', 'Type', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $newId = $this->feediscount_model->tenantScopedInsert('fees_discounts', (int) $tenantId, [
+                'name'           => $this->input->post('name'),
+                'code'           => $this->input->post('code'),
+                'type'           => $this->input->post('type'),
+                'amount'         => $this->input->post('amount'),
+                'percentage'     => $this->input->post('percentage'),
+                'discount_limit' => $this->input->post('discount_limit'),
+                'expire_date'    => $this->input->post('expire_date') ?: null,
+                'description'    => $this->input->post('description'),
+                'is_active'      => 'yes',
+            ]);
+            $this->load->view('admin/feediscount/tenant_fee_discount_create', ['created' => true, 'id' => $newId]);
+
+            return;
+        }
+
+        $this->load->view('admin/feediscount/tenant_fee_discount_create', ['created' => false]);
+    }
+
+    public function tenantFeeDiscountEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $feeDiscount = $this->feediscount_model->tenantScopedFind('fees_discounts', (int) $tenantId, (int) $id);
+        if (!$feeDiscount) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('name', 'Name', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('code', 'Code', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('type', 'Type', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $this->feediscount_model->tenantScopedUpdate('fees_discounts', (int) $tenantId, (int) $id, [
+                'name'           => $this->input->post('name'),
+                'code'           => $this->input->post('code'),
+                'type'           => $this->input->post('type'),
+                'amount'         => $this->input->post('amount'),
+                'percentage'     => $this->input->post('percentage'),
+                'discount_limit' => $this->input->post('discount_limit'),
+                'expire_date'    => $this->input->post('expire_date') ?: null,
+                'description'    => $this->input->post('description'),
+            ]);
+            $feeDiscount = $this->feediscount_model->tenantScopedFind('fees_discounts', (int) $tenantId, (int) $id);
+            $this->load->view('admin/feediscount/tenant_fee_discount_edit', ['updated' => true, 'feeDiscount' => $feeDiscount]);
+
+            return;
+        }
+
+        $this->load->view('admin/feediscount/tenant_fee_discount_edit', ['updated' => false, 'feeDiscount' => $feeDiscount]);
+    }
+
+    public function tenantFeeDiscountDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $deleted = $this->feediscount_model->tenantScopedDelete('fees_discounts', (int) $tenantId, (int) $id);
+        $this->load->view('admin/feediscount/tenant_fee_discount_delete', ['deleted' => $deleted]);
+    }
+
 }

@@ -1098,6 +1098,21 @@ final class AdminControllerTenantGateTest extends TestCase
         );
     }
 
+    public function testTenantFeeDiscountCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/feediscount/tenantFeeDiscountCreate',
+            ['name' => 'Isolation Test Fee Discount', 'code' => 'ITFD01', 'type' => 'fix', 'amount' => '50', 'discount_limit' => '10'],
+            'Fee discount created with id',
+            'admin/feediscount/tenantFeeDiscountEdit/',
+            'admin/feediscount/tenantFeeDiscountDelete/',
+            'Isolation Test Fee Discount',
+            'Fee discount deleted.',
+            'No matching fee discount found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
     private function curlPost(string $path, array $fields): array
     {
         $ch = curl_init(self::BASE_URL . $path);

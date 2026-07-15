@@ -80,7 +80,7 @@ class Admin_Controller extends MY_Controller
                 'student' => ['tenantstudentlist'],
                 'users' => ['tenantuserslist'],
                 'sessions' => ['tenantsessionlist', 'tenantsessioncreate', 'tenantsessionedit', 'tenantsessiondelete'],
-                'feediscount' => ['tenantfeediscountlist'],
+                'feediscount' => ['tenantfeediscountlist', 'tenantfeediscountcreate', 'tenantfeediscountedit', 'tenantfeediscountdelete'],
                 'feemaster' => ['tenantfeesessiongrouplist'],
                 'onlineadmission' => ['tenantonlineadmissionfieldslist'],
                 'resume' => ['tenantresumesettingsfieldslist'],
