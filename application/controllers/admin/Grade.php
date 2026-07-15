@@ -139,7 +139,7 @@ class Grade extends Admin_Controller
         $this->form_validation->set_rules('grade_point', 'Grade Point', 'trim|required|xss_clean');
 
         if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
-            $newId = $this->grade_model->tenantScopedAdd((int) $tenantId, [
+            $newId = $this->grade_model->tenantScopedInsert('grades', (int) $tenantId, [
                 'exam_type'   => $this->input->post('exam_type'),
                 'name'        => $this->input->post('name'),
                 'mark_from'   => $this->input->post('mark_from'),
@@ -164,7 +164,7 @@ class Grade extends Admin_Controller
             return;
         }
 
-        $grade = $this->grade_model->getTenantScopedGrade((int) $tenantId, (int) $id);
+        $grade = $this->grade_model->tenantScopedFind('grades', (int) $tenantId, (int) $id);
         if (!$grade) {
             show_404();
 
@@ -178,8 +178,7 @@ class Grade extends Admin_Controller
         $this->form_validation->set_rules('grade_point', 'Grade Point', 'trim|required|xss_clean');
 
         if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
-            $this->grade_model->tenantScopedAdd((int) $tenantId, [
-                'id'          => (int) $id,
+            $this->grade_model->tenantScopedUpdate('grades', (int) $tenantId, (int) $id, [
                 'exam_type'   => $this->input->post('exam_type'),
                 'name'        => $this->input->post('name'),
                 'mark_from'   => $this->input->post('mark_from'),
@@ -187,7 +186,7 @@ class Grade extends Admin_Controller
                 'point'       => $this->input->post('grade_point'),
                 'description' => $this->input->post('description'),
             ]);
-            $grade = $this->grade_model->getTenantScopedGrade((int) $tenantId, (int) $id);
+            $grade = $this->grade_model->tenantScopedFind('grades', (int) $tenantId, (int) $id);
             $this->load->view('admin/grade/tenant_grade_edit', ['updated' => true, 'grade' => $grade]);
 
             return;
@@ -205,7 +204,7 @@ class Grade extends Admin_Controller
             return;
         }
 
-        $deleted = $this->grade_model->tenantScopedDelete((int) $tenantId, (int) $id);
+        $deleted = $this->grade_model->tenantScopedDelete('grades', (int) $tenantId, (int) $id);
         $this->load->view('admin/grade/tenant_grade_delete', ['deleted' => $deleted]);
     }
 

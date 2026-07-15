@@ -41,4 +41,56 @@ class MY_Model extends CI_Model {
         $this->db->insert('logs', $insert);
     }
 
+    // The 5 methods below are generic tenant-safe CRUD helpers, available
+    // to every model since they all extend MY_Model. Every read/update/
+    // delete filters explicitly by tenant_id; every insert injects it.
+    // `id` is never trusted alone -- a tenant session can never read,
+    // modify, or delete another tenant's row even if it tampers with the
+    // id in a request. Built to avoid hand-writing this same defensive
+    // shape once per table (see Grade_model's tenantScopedAdd/
+    // tenantScopedGrade/tenantScopedDelete, the original proof-of-concept
+    // this generalizes). Only for tables that actually have a tenant_id
+    // column -- do not use these against global reference tables.
+
+    public function tenantScopedFind(string $table, int $tenantId, int $id): ?array
+    {
+        $row = $this->db->where('id', $id)->where('tenant_id', $tenantId)->get($table)->row_array();
+
+        return $row ?: null;
+    }
+
+    public function tenantScopedList(string $table, int $tenantId, array $where = []): array
+    {
+        $this->db->where('tenant_id', $tenantId);
+        foreach ($where as $column => $value) {
+            $this->db->where($column, $value);
+        }
+
+        return $this->db->get($table)->result_array();
+    }
+
+    public function tenantScopedInsert(string $table, int $tenantId, array $data): int
+    {
+        unset($data['id'], $data['tenant_id']);
+        $data['tenant_id'] = $tenantId;
+        $this->db->insert($table, $data);
+
+        return (int) $this->db->insert_id();
+    }
+
+    public function tenantScopedUpdate(string $table, int $tenantId, int $id, array $data): bool
+    {
+        unset($data['id'], $data['tenant_id']);
+        $this->db->where('id', $id)->where('tenant_id', $tenantId)->update($table, $data);
+
+        return $this->db->affected_rows() > 0;
+    }
+
+    public function tenantScopedDelete(string $table, int $tenantId, int $id): bool
+    {
+        $this->db->where('id', $id)->where('tenant_id', $tenantId)->delete($table);
+
+        return $this->db->affected_rows() > 0;
+    }
+
 }
