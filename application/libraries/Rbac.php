@@ -34,7 +34,17 @@ class Rbac
         $role_key = key($roles);
         $role_id  = $roles[$role_key];
 
-        $role_perm = $this->CI->rolepermission_model->getPermissionByRoleandCategory($role_id, trim($category));
+        // admin_tenant_id is only set for tenant-scoped (school_saas)
+        // sessions, where roles_permissions.role_id is NOT guaranteed
+        // unique across tenants -- it only stays that way today by
+        // coincidence of how the data-migration tools allocate ids, not
+        // by design. Every legacy per-branch-database session has no
+        // admin_tenant_id at all, and that schema has no tenant_id column
+        // on roles_permissions either, so the filter must stay entirely
+        // conditional -- unconditionally adding it would break every
+        // legacy session with a "column not found" SQL error.
+        $tenantId  = $this->CI->session->userdata('admin_tenant_id');
+        $role_perm = $this->CI->rolepermission_model->getPermissionByRoleandCategory($role_id, trim($category), $tenantId ?: null);
 
         if ($role_perm) {
             if (array_key_exists($permission, $role_perm)) {

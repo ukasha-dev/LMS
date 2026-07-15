@@ -29,13 +29,18 @@ class Rolepermission_model extends CI_Model
         return $query->result();
     }
 
-    public function getPermissionByRoleandCategory($role_id, $category)
+    public function getPermissionByRoleandCategory($role_id, $category, $tenantId = null)
     {
         $this->db->select('`roles_permissions`.*, permission_category.id as permission_category_id,permission_category.name as permission_category_name,permission_category.short_code as permission_category_code');
         $this->db->from('roles_permissions');
         $this->db->join('permission_category', 'permission_category.id=roles_permissions.perm_cat_id');
         $this->db->where('roles_permissions.role_id', $role_id);
         $this->db->where('permission_category.short_code', $category);
+        if ($tenantId !== null) {
+            // Only the tenant-scoped (school_saas) schema has this column
+            // -- see Rbac::hasPrivilege() for why this must stay optional.
+            $this->db->where('roles_permissions.tenant_id', $tenantId);
+        }
         $query = $this->db->get();
 
         if ($query->num_rows() > 0) {
