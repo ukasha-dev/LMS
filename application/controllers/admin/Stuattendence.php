@@ -342,6 +342,60 @@ class Stuattendence extends Admin_Controller
         echo json_encode($array);
     }
 
+    // Tenant-safe batch save. Mirrors index()'s "saveattendence" branch but
+    // never trusts a posted student_session_id or attendence_type_id: both
+    // sets are batch-verified against this tenant via tenantScopedBatchFind
+    // before any write, and any row referencing an id this tenant doesn't
+    // own is silently dropped (not inserted under a guessed tenant_id).
+    public function tenantAttendanceSave()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        if ($this->input->method() !== 'post') {
+            show_404();
+
+            return;
+        }
+
+        $sessionIds = $this->input->post('student_session_ids') ?: [];
+        $date       = $this->input->post('date');
+
+        $ownedSessions = $this->stuattendence_model->tenantScopedBatchFind('student_session', (int) $tenantId, 'id', $sessionIds);
+
+        $typeIds = [];
+        foreach ($sessionIds as $sessionId) {
+            $typeIds[] = (int) $this->input->post('attendencetype' . $sessionId);
+        }
+        $ownedTypes = $this->stuattendence_model->tenantScopedBatchFind('attendence_type', (int) $tenantId, 'id', $typeIds);
+
+        $attendanceArray = [];
+        foreach ($sessionIds as $sessionId) {
+            $sessionId = (int) $sessionId;
+            $typeId    = (int) $this->input->post('attendencetype' . $sessionId);
+
+            if (!isset($ownedSessions[$sessionId]) || !isset($ownedTypes[$typeId])) {
+                continue;
+            }
+
+            $attendanceArray[] = [
+                'student_session_id' => $sessionId,
+                'attendence_type_id' => $typeId,
+                'remark'             => (string) $this->input->post('remark' . $sessionId),
+                'in_time'            => null,
+                'out_time'           => null,
+                'date'               => $date,
+            ];
+        }
+
+        $savedCount = $this->stuattendence_model->tenantScopedAddOrUpdate($attendanceArray, (int) $tenantId);
+        $this->load->view('admin/stuattendence/tenant_attendance_save', ['savedCount' => $savedCount]);
+    }
+
     public function tenantAttendanceList()
     {
         $tenantId = $this->session->userdata('admin_tenant_id');

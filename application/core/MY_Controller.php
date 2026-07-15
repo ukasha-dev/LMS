@@ -64,7 +64,7 @@ class Admin_Controller extends MY_Controller
             $allowedTenantRoutes = [
                 'staff' => ['tenantstafflist'],
                 'feesforward' => ['tenantfeeslist'],
-                'stuattendence' => ['tenantattendancelist'],
+                'stuattendence' => ['tenantattendancelist', 'tenantattendancesave'],
                 'leaverequest' => ['tenantleaverequestlist'],
                 'classes' => ['tenantclasslist'],
                 'sections' => ['tenantsectionlist', 'tenantsectioncreate', 'tenantsectionedit', 'tenantsectiondelete'],

@@ -49,6 +49,50 @@ class Stuattendence_model extends MY_Model
         }    
     }
 
+    // Tenant-safe batch analogue of addorUpdate() above. Every write is
+    // scoped to $tenantId: the existence check filters by tenant_id (so a
+    // stray student_session_id/date pair belonging to another tenant is
+    // never silently updated), and every insert stamps tenant_id
+    // explicitly. Callers must already have verified student_session_id/
+    // attendence_type_id ownership before calling this (see
+    // Stuattendence::tenantAttendanceSave).
+    public function tenantScopedAddOrUpdate(array $attendances, int $tenantId): int
+    {
+        $this->db->trans_start();
+        $this->db->trans_strict(false);
+
+        $saved = 0;
+        foreach ($attendances as $attendance) {
+            $attendance['tenant_id'] = $tenantId;
+
+            $this->db->where('student_session_id', $attendance['student_session_id']);
+            $this->db->where('date', $attendance['date']);
+            $this->db->where('tenant_id', $tenantId);
+            $query = $this->db->get('student_attendences');
+
+            if ($query->num_rows() > 0) {
+                $this->db->where('id', $query->row()->id);
+                $this->db->where('tenant_id', $tenantId);
+                $this->db->update('student_attendences', $attendance);
+            } else {
+                $this->db->insert('student_attendences', $attendance);
+            }
+            $saved++;
+        }
+
+        $this->db->trans_complete();
+
+        if ($this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+
+            return 0;
+        }
+
+        $this->db->trans_commit();
+
+        return $saved;
+    }
+
     public function batch_insert($data)
     {
         $this->db->insert_batch('student_attendences', $data);

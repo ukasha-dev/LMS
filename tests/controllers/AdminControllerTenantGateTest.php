@@ -1306,6 +1306,81 @@ final class AdminControllerTenantGateTest extends TestCase
         }
     }
 
+    public function testTenantAttendanceSaveRejectsForgedForeignKeysAndIsolatesPerTenant(): void
+    {
+        $date = '2026-01-17';
+
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        // Tenant 25 saves attendance for its own student_session #312
+        // against its own attendance type #1 (Present) -- must succeed.
+        [$saveStatus, $saveBody] = $this->curlPost('admin/stuattendence/tenantAttendanceSave', [
+            'student_session_ids' => [312],
+            'date' => $date,
+            'attendencetype312' => 1,
+            'remark312' => 'present via isolation test',
+        ]);
+        $this->assertSame(200, $saveStatus);
+        $this->assertStringContainsString('Attendance saved for 1 student(s).', $saveBody);
+
+        [$listStatus, $listBody] = $this->curlGet('admin/stuattendence/tenantAttendanceList');
+        $this->assertSame(200, $listStatus);
+        $this->assertStringContainsString('student session 312', $listBody);
+        $this->assertStringContainsString('type 1', $listBody);
+
+        $otherCookieJar = tempnam(sys_get_temp_dir(), 'admgate_test_other_');
+        $realCookieJar = $this->cookieJar;
+        $this->cookieJar = $otherCookieJar;
+
+        try {
+            [$otherLoginStatus, ] = $this->curlPostPilotLoginAs(26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!');
+            $this->assertContains($otherLoginStatus, [200, 302, 303, 307]);
+
+            // Forgery 1: tenant 26 references tenant 25's student_session #312
+            // with its own (legitimately owned) attendance type -- must be dropped.
+            [$forgeSessionStatus, $forgeSessionBody] = $this->curlPost('admin/stuattendence/tenantAttendanceSave', [
+                'student_session_ids' => [312],
+                'date' => $date,
+                'attendencetype312' => 7,
+                'remark312' => 'forged student_session_id',
+            ]);
+            $this->assertSame(200, $forgeSessionStatus);
+            $this->assertStringContainsString('Attendance saved for 0 student(s).', $forgeSessionBody);
+
+            // Forgery 2: tenant 26 references its own student_session #796 but
+            // tenant 25's attendance type #1 -- must also be dropped.
+            [$forgeTypeStatus, $forgeTypeBody] = $this->curlPost('admin/stuattendence/tenantAttendanceSave', [
+                'student_session_ids' => [796],
+                'date' => $date,
+                'attendencetype796' => 1,
+                'remark796' => 'forged attendence_type_id',
+            ]);
+            $this->assertSame(200, $forgeTypeStatus);
+            $this->assertStringContainsString('Attendance saved for 0 student(s).', $forgeTypeBody);
+
+            // Tenant 26 must not see tenant 25's attendance row at all.
+            [$crossListStatus, $crossListBody] = $this->curlGet('admin/stuattendence/tenantAttendanceList');
+            $this->assertSame(200, $crossListStatus);
+            $this->assertStringNotContainsString('student session 312', $crossListBody);
+        } finally {
+            $this->cookieJar = $realCookieJar;
+            @unlink($otherCookieJar);
+        }
+
+        // Tenant 25's original row must be untouched by both forgery attempts.
+        [$finalListStatus, $finalListBody] = $this->curlGet('admin/stuattendence/tenantAttendanceList');
+        $this->assertSame(200, $finalListStatus);
+        $this->assertStringContainsString('student session 312', $finalListBody);
+        $this->assertStringContainsString('type 1', $finalListBody);
+
+        // No tenant delete endpoint exists for this entity yet -- clean up
+        // the row this test created directly.
+        (new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', ''))
+            ->prepare('DELETE FROM student_attendences WHERE date = ? AND tenant_id = 25')
+            ->execute([$date]);
+    }
+
     private function curlPost(string $path, array $fields): array
     {
         $ch = curl_init(self::BASE_URL . $path);
