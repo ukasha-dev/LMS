@@ -140,4 +140,9 @@ class Feegroup_model extends MY_Model
         }
     }
 
+    public function getTenantScopedFeegroupList($tenantId)
+    {
+        return $this->db->where('tenant_id', $tenantId)->get('fee_groups')->result_array();
+    }
+
 }

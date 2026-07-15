@@ -2297,7 +2297,12 @@ class Student_model extends MY_Model
         $result = $query->row_array();
         if(!empty($result)){
         return $result['is_parent'];
-        }        
+        }
+    }
+
+    public function getTenantScopedStudentList($tenantId)
+    {
+        return $this->db->where('tenant_id', $tenantId)->get('students')->result_array();
     }
 
 }

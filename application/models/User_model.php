@@ -555,4 +555,9 @@ class User_model extends MY_Model
         }
     }
 
+    public function getTenantScopedUsersList($tenantId)
+    {
+        return $this->db->where('tenant_id', $tenantId)->get('users')->result_array();
+    }
+
 }

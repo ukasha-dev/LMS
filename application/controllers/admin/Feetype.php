@@ -93,4 +93,17 @@ class Feetype extends Admin_Controller
         }
     }
 
+    public function tenantFeetypeList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $feetypeList = $this->feetype_model->getTenantScopedFeetypeList((int) $tenantId);
+        $this->load->view('admin/feetype/tenant_feetype_list', ['feetypeList' => $feetypeList]);
+    }
+
 }

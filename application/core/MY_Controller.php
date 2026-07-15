@@ -75,6 +75,12 @@ class Admin_Controller extends MY_Controller
                 'leavetypes' => ['tenantleavetypeslist'],
                 'subject' => ['tenantsubjectlist'],
                 'grade' => ['tenantgradelist'],
+                'currency' => ['tenantcurrencylist'],
+                'language' => ['tenantlanguagelist'],
+                'feetype' => ['tenantfeetypelist'],
+                'feegroup' => ['tenantfeegrouplist'],
+                'student' => ['tenantstudentlist'],
+                'users' => ['tenantuserslist'],
             ];
             if (!isset($allowedTenantRoutes[$activeController]) || !in_array($activeMethod, $allowedTenantRoutes[$activeController], true)) {
                 show_404();

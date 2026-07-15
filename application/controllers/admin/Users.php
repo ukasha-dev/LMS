@@ -59,7 +59,18 @@ class Users extends Admin_Controller
             $response = array('status' => 1, 'msg' => $this->lang->line('status_change_successfully'));
             echo json_encode($response);
         }
-    }     
+    }
 
-    
+    public function tenantUsersList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $usersList = $this->user_model->getTenantScopedUsersList((int) $tenantId);
+        $this->load->view('admin/users/tenant_users_list', ['usersList' => $usersList]);
+    }
 }

@@ -158,4 +158,14 @@ class Language_model extends MY_Model
         return $this->db->select('*')->from('languages')->where('id', 93)->get()->result_array();
     }
 
+    public function getGlobalLanguageList()
+    {
+        // languages is a GLOBAL reference table (no tenant_id column,
+        // confirmed live -- same shape as currencies/permission_group,
+        // populated as a full copy back in Phase 2 Stage 6). Not filtered
+        // by tenant; the controller's own session guard still requires an
+        // authenticated tenant session to view it.
+        return $this->db->get('languages')->result_array();
+    }
+
 }

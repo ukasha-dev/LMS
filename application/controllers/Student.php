@@ -3136,4 +3136,17 @@ class Student extends Admin_Controller
         $content = $mpdf->Output(random_string() . '.pdf', 'I');
         return $content;
     }
+
+    public function tenantStudentList()
+    {
+        $tenantId = $this->session->userdata("admin_tenant_id");
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $studentList = $this->student_model->getTenantScopedStudentList((int) $tenantId);
+        $this->load->view("student/tenant_student_list", ["studentList" => $studentList]);
+    }
 }

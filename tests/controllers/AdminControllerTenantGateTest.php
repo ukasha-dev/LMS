@@ -291,6 +291,43 @@ final class AdminControllerTenantGateTest extends TestCase
         $this->assertSame(404, $rolesPermissionMethodStatus);
     }
 
+    public function testTenantScopedSessionReachesSixMoreAllowlistedRoutesAndNothingElse(): void
+    {
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        [$currencyStatus, $currencyBody] = $this->curlGet('admin/currency/tenantCurrencyList');
+        $this->assertSame(200, $currencyStatus);
+        $this->assertStringContainsString('Tenant Currency List', $currencyBody);
+
+        [$languageStatus, $languageBody] = $this->curlGet('admin/language/tenantLanguageList');
+        $this->assertSame(200, $languageStatus);
+        $this->assertStringContainsString('Tenant Language List', $languageBody);
+
+        [$feetypeStatus, $feetypeBody] = $this->curlGet('admin/feetype/tenantFeetypeList');
+        $this->assertSame(200, $feetypeStatus);
+        $this->assertStringContainsString('Tenant Feetype List', $feetypeBody);
+
+        [$feegroupStatus, $feegroupBody] = $this->curlGet('admin/feegroup/tenantFeegroupList');
+        $this->assertSame(200, $feegroupStatus);
+        $this->assertStringContainsString('Tenant Feegroup List', $feegroupBody);
+
+        [$studentStatus, $studentBody] = $this->curlGet('student/tenantStudentList');
+        $this->assertSame(200, $studentStatus);
+        $this->assertStringContainsString('Tenant Student List', $studentBody);
+
+        [$usersStatus, $usersBody] = $this->curlGet('admin/users/tenantUsersList');
+        $this->assertSame(200, $usersStatus);
+        $this->assertStringContainsString('Tenant Users List', $usersBody);
+        $this->assertStringNotContainsString('$2y$', $usersBody, 'the users list must never render a bcrypt password hash');
+
+        [$currencyIndexStatus, ] = $this->curlGet('admin/currency/index');
+        $this->assertSame(404, $currencyIndexStatus);
+
+        [$usersIndexStatus, ] = $this->curlGet('admin/users/index');
+        $this->assertSame(404, $usersIndexStatus);
+    }
+
     private function curlPostPilotLogin(): array
     {
         $ch = curl_init(self::BASE_URL . 'pilotlogin/login');

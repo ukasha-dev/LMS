@@ -573,4 +573,17 @@ class Language extends Admin_Controller
         echo json_encode(array('status' => '1'));
     }
 
+    public function tenantLanguageList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $languageList = $this->language_model->getGlobalLanguageList();
+        $this->load->view('admin/language/tenant_language_list', ['languageList' => $languageList]);
+    }
+
 }

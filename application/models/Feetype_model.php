@@ -158,6 +158,9 @@ class Feetype_model extends MY_Model
     }
     
 
-    
+    public function getTenantScopedFeetypeList($tenantId)
+    {
+        return $this->db->where('tenant_id', $tenantId)->get('feetype')->result_array();
+    }
 
 }

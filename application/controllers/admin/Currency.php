@@ -102,5 +102,18 @@ class Currency extends Admin_Controller
        $amount=amountFormat($total_fees_alloted);
        echo json_encode(['status' => 1, 'amount' => $amount]);
     }
-  
+
+    public function tenantCurrencyList()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $currencyList = $this->currency_model->getGlobalCurrencyList();
+        $this->load->view('admin/currency/tenant_currency_list', ['currencyList' => $currencyList]);
+    }
+
 }
