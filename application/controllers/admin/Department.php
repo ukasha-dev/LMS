@@ -91,6 +91,74 @@ class Department extends Admin_Controller {
         $this->load->view('admin/staff/tenant_department_list', ['departmentList' => $departmentList]);
     }
 
+    public function tenantDepartmentCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('department_name', 'Department Name', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $newId = $this->department_model->tenantScopedInsert('department', (int) $tenantId, [
+                'department_name' => $this->input->post('department_name'),
+                'is_active'       => 'yes',
+            ]);
+            $this->load->view('admin/staff/tenant_department_create', ['created' => true, 'id' => $newId]);
+
+            return;
+        }
+
+        $this->load->view('admin/staff/tenant_department_create', ['created' => false]);
+    }
+
+    public function tenantDepartmentEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $department = $this->department_model->tenantScopedFind('department', (int) $tenantId, (int) $id);
+        if (!$department) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('department_name', 'Department Name', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $this->department_model->tenantScopedUpdate('department', (int) $tenantId, (int) $id, [
+                'department_name' => $this->input->post('department_name'),
+            ]);
+            $department = $this->department_model->tenantScopedFind('department', (int) $tenantId, (int) $id);
+            $this->load->view('admin/staff/tenant_department_edit', ['updated' => true, 'department' => $department]);
+
+            return;
+        }
+
+        $this->load->view('admin/staff/tenant_department_edit', ['updated' => false, 'department' => $department]);
+    }
+
+    public function tenantDepartmentDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $deleted = $this->department_model->tenantScopedDelete('department', (int) $tenantId, (int) $id);
+        $this->load->view('admin/staff/tenant_department_delete', ['deleted' => $deleted]);
+    }
+
 }
 
 ?>

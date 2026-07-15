@@ -208,4 +208,78 @@ class Roles extends Admin_Controller
         $rolesPermissionsList = $this->role_model->getTenantScopedRolesPermissionsList((int) $tenantId);
         $this->load->view('admin/roles/tenant_roles_permissions_list', ['rolesPermissionsList' => $rolesPermissionsList]);
     }
+
+    // Scoped to basic role CRUD only (the `name` column) -- the legacy
+    // permission() method's role-to-permission-category assignment is a
+    // separate, more complex feature (many-to-many against roles_permissions/
+    // permission_category) deliberately out of scope for this batch, same
+    // reasoning as excluding Staff.php's file uploads from its own cutover.
+
+    public function tenantRolesCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('name', 'Name', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $newId = $this->role_model->tenantScopedInsert('roles', (int) $tenantId, [
+                'name'      => $this->input->post('name'),
+                'is_active' => 1,
+            ]);
+            $this->load->view('admin/roles/tenant_roles_create', ['created' => true, 'id' => $newId]);
+
+            return;
+        }
+
+        $this->load->view('admin/roles/tenant_roles_create', ['created' => false]);
+    }
+
+    public function tenantRolesEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $role = $this->role_model->tenantScopedFind('roles', (int) $tenantId, (int) $id);
+        if (!$role) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('name', 'Name', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $this->role_model->tenantScopedUpdate('roles', (int) $tenantId, (int) $id, [
+                'name' => $this->input->post('name'),
+            ]);
+            $role = $this->role_model->tenantScopedFind('roles', (int) $tenantId, (int) $id);
+            $this->load->view('admin/roles/tenant_roles_edit', ['updated' => true, 'role' => $role]);
+
+            return;
+        }
+
+        $this->load->view('admin/roles/tenant_roles_edit', ['updated' => false, 'role' => $role]);
+    }
+
+    public function tenantRolesDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $deleted = $this->role_model->tenantScopedDelete('roles', (int) $tenantId, (int) $id);
+        $this->load->view('admin/roles/tenant_roles_delete', ['deleted' => $deleted]);
+    }
 }

@@ -111,4 +111,72 @@ class LeaveTypes extends Admin_Controller
         $this->load->view('admin/staff/tenant_leave_types_list', ['leaveTypesList' => $leaveTypesList]);
     }
 
+    public function tenantLeaveTypesCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('type', 'Leave Type', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $newId = $this->leavetypes_model->tenantScopedInsert('leave_types', (int) $tenantId, [
+                'type'      => $this->input->post('type'),
+                'is_active' => 'yes',
+            ]);
+            $this->load->view('admin/staff/tenant_leave_types_create', ['created' => true, 'id' => $newId]);
+
+            return;
+        }
+
+        $this->load->view('admin/staff/tenant_leave_types_create', ['created' => false]);
+    }
+
+    public function tenantLeaveTypesEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $leaveType = $this->leavetypes_model->tenantScopedFind('leave_types', (int) $tenantId, (int) $id);
+        if (!$leaveType) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('type', 'Leave Type', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $this->leavetypes_model->tenantScopedUpdate('leave_types', (int) $tenantId, (int) $id, [
+                'type' => $this->input->post('type'),
+            ]);
+            $leaveType = $this->leavetypes_model->tenantScopedFind('leave_types', (int) $tenantId, (int) $id);
+            $this->load->view('admin/staff/tenant_leave_types_edit', ['updated' => true, 'leaveType' => $leaveType]);
+
+            return;
+        }
+
+        $this->load->view('admin/staff/tenant_leave_types_edit', ['updated' => false, 'leaveType' => $leaveType]);
+    }
+
+    public function tenantLeaveTypesDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $deleted = $this->leavetypes_model->tenantScopedDelete('leave_types', (int) $tenantId, (int) $id);
+        $this->load->view('admin/staff/tenant_leave_types_delete', ['deleted' => $deleted]);
+    }
+
 }

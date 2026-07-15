@@ -141,4 +141,72 @@ class Sections extends Admin_Controller
         $this->load->view('section/tenant_section_list', ['sectionList' => $sectionList]);
     }
 
+    public function tenantSectionCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('section', 'Section', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $newId = $this->section_model->tenantScopedInsert('sections', (int) $tenantId, [
+                'section'   => $this->input->post('section'),
+                'is_active' => 'yes',
+            ]);
+            $this->load->view('section/tenant_section_create', ['created' => true, 'id' => $newId]);
+
+            return;
+        }
+
+        $this->load->view('section/tenant_section_create', ['created' => false]);
+    }
+
+    public function tenantSectionEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $section = $this->section_model->tenantScopedFind('sections', (int) $tenantId, (int) $id);
+        if (!$section) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('section', 'Section', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $this->section_model->tenantScopedUpdate('sections', (int) $tenantId, (int) $id, [
+                'section' => $this->input->post('section'),
+            ]);
+            $section = $this->section_model->tenantScopedFind('sections', (int) $tenantId, (int) $id);
+            $this->load->view('section/tenant_section_edit', ['updated' => true, 'section' => $section]);
+
+            return;
+        }
+
+        $this->load->view('section/tenant_section_edit', ['updated' => false, 'section' => $section]);
+    }
+
+    public function tenantSectionDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $deleted = $this->section_model->tenantScopedDelete('sections', (int) $tenantId, (int) $id);
+        $this->load->view('section/tenant_section_delete', ['deleted' => $deleted]);
+    }
+
 }

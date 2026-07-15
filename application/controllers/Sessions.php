@@ -113,4 +113,72 @@ class Sessions extends Admin_Controller
         $this->load->view('session/tenant_session_list', ['sessionList' => $sessionList]);
     }
 
+    public function tenantSessionCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('session', 'Session', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $newId = $this->session_model->tenantScopedInsert('sessions', (int) $tenantId, [
+                'session'   => $this->input->post('session'),
+                'is_active' => 'yes',
+            ]);
+            $this->load->view('session/tenant_session_create', ['created' => true, 'id' => $newId]);
+
+            return;
+        }
+
+        $this->load->view('session/tenant_session_create', ['created' => false]);
+    }
+
+    public function tenantSessionEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $sessionRow = $this->session_model->tenantScopedFind('sessions', (int) $tenantId, (int) $id);
+        if (!$sessionRow) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('session', 'Session', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $this->session_model->tenantScopedUpdate('sessions', (int) $tenantId, (int) $id, [
+                'session' => $this->input->post('session'),
+            ]);
+            $sessionRow = $this->session_model->tenantScopedFind('sessions', (int) $tenantId, (int) $id);
+            $this->load->view('session/tenant_session_edit', ['updated' => true, 'sessionRow' => $sessionRow]);
+
+            return;
+        }
+
+        $this->load->view('session/tenant_session_edit', ['updated' => false, 'sessionRow' => $sessionRow]);
+    }
+
+    public function tenantSessionDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $deleted = $this->session_model->tenantScopedDelete('sessions', (int) $tenantId, (int) $id);
+        $this->load->view('session/tenant_session_delete', ['deleted' => $deleted]);
+    }
+
 }

@@ -106,4 +106,82 @@ class Feetype extends Admin_Controller
         $this->load->view('admin/feetype/tenant_feetype_list', ['feetypeList' => $feetypeList]);
     }
 
+    public function tenantFeetypeCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('name', 'Name', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('code', 'Code', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('nature', 'Nature', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $newId = $this->feetype_model->tenantScopedInsert('feetype', (int) $tenantId, [
+                'type'        => $this->input->post('name'),
+                'code'        => $this->input->post('code'),
+                'description' => $this->input->post('description'),
+                'nature'      => $this->input->post('nature'),
+                'is_active'   => 'yes',
+            ]);
+            $this->load->view('admin/feetype/tenant_feetype_create', ['created' => true, 'id' => $newId]);
+
+            return;
+        }
+
+        $this->load->view('admin/feetype/tenant_feetype_create', ['created' => false]);
+    }
+
+    public function tenantFeetypeEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $feetype = $this->feetype_model->tenantScopedFind('feetype', (int) $tenantId, (int) $id);
+        if (!$feetype) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('name', 'Name', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('code', 'Code', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('nature', 'Nature', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $this->feetype_model->tenantScopedUpdate('feetype', (int) $tenantId, (int) $id, [
+                'type'        => $this->input->post('name'),
+                'code'        => $this->input->post('code'),
+                'description' => $this->input->post('description'),
+                'nature'      => $this->input->post('nature'),
+            ]);
+            $feetype = $this->feetype_model->tenantScopedFind('feetype', (int) $tenantId, (int) $id);
+            $this->load->view('admin/feetype/tenant_feetype_edit', ['updated' => true, 'feetype' => $feetype]);
+
+            return;
+        }
+
+        $this->load->view('admin/feetype/tenant_feetype_edit', ['updated' => false, 'feetype' => $feetype]);
+    }
+
+    public function tenantFeetypeDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $deleted = $this->feetype_model->tenantScopedDelete('feetype', (int) $tenantId, (int) $id);
+        $this->load->view('admin/feetype/tenant_feetype_delete', ['deleted' => $deleted]);
+    }
+
 }

@@ -474,6 +474,203 @@ final class AdminControllerTenantGateTest extends TestCase
         $this->assertSame(200, $cleanupStatus);
     }
 
+    // Shared by every Batch A tenant-write test below (Department,
+    // Designation, Leavetypes, Feegroup, Subject, Feetype, Roles, Sections,
+    // Sessions): create as tenant 25, confirm ownership, confirm a second
+    // real tenant (26) cannot view/edit/delete it by id, confirm tenant
+    // 25's row is untouched afterward, then clean up. Same shape as
+    // Grade's own hand-written isolation test, generalized once these 9
+    // controllers all landed on the exact same view/response conventions.
+    private function verifyTenantCrudCrossTenantIsolation(
+        string $createPath,
+        array $createFields,
+        string $createdMessagePrefix,
+        string $editPathPrefix,
+        string $deletePathPrefix,
+        string $ownershipNeedle,
+        string $deletedMessage,
+        string $notFoundMessage,
+        int $otherTenantId,
+        string $otherTenantEmail,
+        string $otherTenantPassword
+    ): void {
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        [$createStatus, $createBody] = $this->curlPost($createPath, $createFields);
+        $this->assertSame(200, $createStatus);
+        $pattern = '/' . preg_quote($createdMessagePrefix, '/') . ' (\d+)/';
+        $this->assertMatchesRegularExpression($pattern, $createBody, 'create must report the new row id');
+        preg_match($pattern, $createBody, $matches);
+        $ownId = (int) $matches[1];
+
+        [$editGetStatus, $editGetBody] = $this->curlGet($editPathPrefix . $ownId);
+        $this->assertSame(200, $editGetStatus);
+        $this->assertStringContainsString($ownershipNeedle, $editGetBody);
+
+        $otherCookieJar = tempnam(sys_get_temp_dir(), 'admgate_test_other_');
+        $realCookieJar = $this->cookieJar;
+        $this->cookieJar = $otherCookieJar;
+
+        try {
+            [$otherLoginStatus, ] = $this->curlPostPilotLoginAs($otherTenantId, $otherTenantEmail, $otherTenantPassword);
+            $this->assertContains($otherLoginStatus, [200, 302, 303, 307]);
+
+            [$crossEditStatus, ] = $this->curlGet($editPathPrefix . $ownId);
+            $this->assertSame(404, $crossEditStatus, 'the other tenant must not be able to view this row by id');
+
+            [$crossDeleteStatus, $crossDeleteBody] = $this->curlGet($deletePathPrefix . $ownId);
+            $this->assertSame(200, $crossDeleteStatus);
+            $this->assertStringContainsString($notFoundMessage, $crossDeleteBody);
+        } finally {
+            $this->cookieJar = $realCookieJar;
+            @unlink($otherCookieJar);
+        }
+
+        [$stillThereStatus, $stillThereBody] = $this->curlGet($editPathPrefix . $ownId);
+        $this->assertSame(200, $stillThereStatus, 'the row must still exist after the other tenant\'s attempted cross-tenant delete');
+        $this->assertStringContainsString($ownershipNeedle, $stillThereBody);
+
+        [$cleanupStatus, $cleanupBody] = $this->curlGet($deletePathPrefix . $ownId);
+        $this->assertSame(200, $cleanupStatus);
+        $this->assertStringContainsString($deletedMessage, $cleanupBody);
+    }
+
+    public function testTenantDepartmentCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/department/tenantDepartmentCreate',
+            ['department_name' => 'Isolation Test Department'],
+            'Department created with id',
+            'admin/department/tenantDepartmentEdit/',
+            'admin/department/tenantDepartmentDelete/',
+            'Isolation Test Department',
+            'Department deleted.',
+            'No matching department found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantDesignationCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/designation/tenantDesignationCreate',
+            ['designation' => 'Isolation Test Designation'],
+            'Designation created with id',
+            'admin/designation/tenantDesignationEdit/',
+            'admin/designation/tenantDesignationDelete/',
+            'Isolation Test Designation',
+            'Designation deleted.',
+            'No matching designation found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantLeaveTypesCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/leavetypes/tenantLeaveTypesCreate',
+            ['type' => 'Isolation Test Leave Type'],
+            'Leave type created with id',
+            'admin/leavetypes/tenantLeaveTypesEdit/',
+            'admin/leavetypes/tenantLeaveTypesDelete/',
+            'Isolation Test Leave Type',
+            'Leave type deleted.',
+            'No matching leave type found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantFeegroupCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/feegroup/tenantFeegroupCreate',
+            ['name' => 'Isolation Test Fee Group', 'nature' => 'onetime'],
+            'Fee group created with id',
+            'admin/feegroup/tenantFeegroupEdit/',
+            'admin/feegroup/tenantFeegroupDelete/',
+            'Isolation Test Fee Group',
+            'Fee group deleted.',
+            'No matching fee group found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantSubjectCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/subject/tenantSubjectCreate',
+            ['name' => 'Isolation Test Subject', 'code' => 'ITS101', 'type' => 'theory'],
+            'Subject created with id',
+            'admin/subject/tenantSubjectEdit/',
+            'admin/subject/tenantSubjectDelete/',
+            'Isolation Test Subject',
+            'Subject deleted.',
+            'No matching subject found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantFeetypeCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/feetype/tenantFeetypeCreate',
+            ['name' => 'Isolation Test Fee Type', 'code' => 'ITF101', 'nature' => 'onetime'],
+            'Fee type created with id',
+            'admin/feetype/tenantFeetypeEdit/',
+            'admin/feetype/tenantFeetypeDelete/',
+            'Isolation Test Fee Type',
+            'Fee type deleted.',
+            'No matching fee type found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantRolesCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/roles/tenantRolesCreate',
+            ['name' => 'Isolation Test Role'],
+            'Role created with id',
+            'admin/roles/tenantRolesEdit/',
+            'admin/roles/tenantRolesDelete/',
+            'Isolation Test Role',
+            'Role deleted.',
+            'No matching role found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantSectionCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'sections/tenantSectionCreate',
+            ['section' => 'Isolation Test Section'],
+            'Section created with id',
+            'sections/tenantSectionEdit/',
+            'sections/tenantSectionDelete/',
+            'Isolation Test Section',
+            'Section deleted.',
+            'No matching section found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantSessionCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'sessions/tenantSessionCreate',
+            ['session' => 'Isolation Test Session'],
+            'Session created with id',
+            'sessions/tenantSessionEdit/',
+            'sessions/tenantSessionDelete/',
+            'Isolation Test Session',
+            'Session deleted.',
+            'No matching session found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
     private function curlPost(string $path, array $fields): array
     {
         $ch = curl_init(self::BASE_URL . $path);

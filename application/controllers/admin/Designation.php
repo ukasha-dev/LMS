@@ -94,6 +94,74 @@ class Designation extends Admin_Controller {
         $this->load->view('admin/staff/tenant_designation_list', ['designationList' => $designationList]);
     }
 
+    public function tenantDesignationCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('designation', 'Designation', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $newId = $this->designation_model->tenantScopedInsert('staff_designation', (int) $tenantId, [
+                'designation' => $this->input->post('designation'),
+                'is_active'   => 'yes',
+            ]);
+            $this->load->view('admin/staff/tenant_designation_create', ['created' => true, 'id' => $newId]);
+
+            return;
+        }
+
+        $this->load->view('admin/staff/tenant_designation_create', ['created' => false]);
+    }
+
+    public function tenantDesignationEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $designation = $this->designation_model->tenantScopedFind('staff_designation', (int) $tenantId, (int) $id);
+        if (!$designation) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('designation', 'Designation', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $this->designation_model->tenantScopedUpdate('staff_designation', (int) $tenantId, (int) $id, [
+                'designation' => $this->input->post('designation'),
+            ]);
+            $designation = $this->designation_model->tenantScopedFind('staff_designation', (int) $tenantId, (int) $id);
+            $this->load->view('admin/staff/tenant_designation_edit', ['updated' => true, 'designation' => $designation]);
+
+            return;
+        }
+
+        $this->load->view('admin/staff/tenant_designation_edit', ['updated' => false, 'designation' => $designation]);
+    }
+
+    public function tenantDesignationDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $deleted = $this->designation_model->tenantScopedDelete('staff_designation', (int) $tenantId, (int) $id);
+        $this->load->view('admin/staff/tenant_designation_delete', ['deleted' => $deleted]);
+    }
+
 }
 
 ?>

@@ -115,4 +115,78 @@ class FeeGroup extends Admin_Controller
         $this->load->view('admin/feegroup/tenant_feegroup_feetype_list', ['feeGroupFeetypeList' => $feeGroupFeetypeList]);
     }
 
+    public function tenantFeegroupCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('name', 'Name', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('nature', 'Nature', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $newId = $this->feegroup_model->tenantScopedInsert('fee_groups', (int) $tenantId, [
+                'name'        => $this->input->post('name'),
+                'description' => $this->input->post('description'),
+                'nature'      => $this->input->post('nature'),
+                'is_active'   => 'yes',
+            ]);
+            $this->load->view('admin/feegroup/tenant_feegroup_create', ['created' => true, 'id' => $newId]);
+
+            return;
+        }
+
+        $this->load->view('admin/feegroup/tenant_feegroup_create', ['created' => false]);
+    }
+
+    public function tenantFeegroupEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $feegroup = $this->feegroup_model->tenantScopedFind('fee_groups', (int) $tenantId, (int) $id);
+        if (!$feegroup) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('name', 'Name', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('nature', 'Nature', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $this->feegroup_model->tenantScopedUpdate('fee_groups', (int) $tenantId, (int) $id, [
+                'name'        => $this->input->post('name'),
+                'description' => $this->input->post('description'),
+                'nature'      => $this->input->post('nature'),
+            ]);
+            $feegroup = $this->feegroup_model->tenantScopedFind('fee_groups', (int) $tenantId, (int) $id);
+            $this->load->view('admin/feegroup/tenant_feegroup_edit', ['updated' => true, 'feegroup' => $feegroup]);
+
+            return;
+        }
+
+        $this->load->view('admin/feegroup/tenant_feegroup_edit', ['updated' => false, 'feegroup' => $feegroup]);
+    }
+
+    public function tenantFeegroupDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $deleted = $this->feegroup_model->tenantScopedDelete('fee_groups', (int) $tenantId, (int) $id);
+        $this->load->view('admin/feegroup/tenant_feegroup_delete', ['deleted' => $deleted]);
+    }
+
 }

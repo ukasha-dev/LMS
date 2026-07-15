@@ -141,4 +141,80 @@ class Subject extends Admin_Controller
         $this->load->view('admin/subject/tenant_subject_list', ['subjectList' => $subjectList]);
     }
 
+    public function tenantSubjectCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('name', 'Name', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('code', 'Code', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('type', 'Type', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $newId = $this->subject_model->tenantScopedInsert('subjects', (int) $tenantId, [
+                'name'      => $this->input->post('name'),
+                'code'      => $this->input->post('code'),
+                'type'      => $this->input->post('type'),
+                'is_active' => 'yes',
+            ]);
+            $this->load->view('admin/subject/tenant_subject_create', ['created' => true, 'id' => $newId]);
+
+            return;
+        }
+
+        $this->load->view('admin/subject/tenant_subject_create', ['created' => false]);
+    }
+
+    public function tenantSubjectEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $subject = $this->subject_model->tenantScopedFind('subjects', (int) $tenantId, (int) $id);
+        if (!$subject) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('name', 'Name', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('code', 'Code', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('type', 'Type', 'trim|required|xss_clean');
+
+        if ($this->input->method() === 'post' && $this->form_validation->run() !== false) {
+            $this->subject_model->tenantScopedUpdate('subjects', (int) $tenantId, (int) $id, [
+                'name' => $this->input->post('name'),
+                'code' => $this->input->post('code'),
+                'type' => $this->input->post('type'),
+            ]);
+            $subject = $this->subject_model->tenantScopedFind('subjects', (int) $tenantId, (int) $id);
+            $this->load->view('admin/subject/tenant_subject_edit', ['updated' => true, 'subject' => $subject]);
+
+            return;
+        }
+
+        $this->load->view('admin/subject/tenant_subject_edit', ['updated' => false, 'subject' => $subject]);
+    }
+
+    public function tenantSubjectDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+
+        $deleted = $this->subject_model->tenantScopedDelete('subjects', (int) $tenantId, (int) $id);
+        $this->load->view('admin/subject/tenant_subject_delete', ['deleted' => $deleted]);
+    }
+
 }
