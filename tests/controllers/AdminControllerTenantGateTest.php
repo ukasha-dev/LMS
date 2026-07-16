@@ -2321,6 +2321,66 @@ final class AdminControllerTenantGateTest extends TestCase
         );
     }
 
+    public function testTenantMemberCreateDeleteIsolatedAndRejectsForgedMemberId(): void
+    {
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        $ownId = null;
+
+        try {
+            [$createStatus, $createBody] = $this->curlPost('admin/member/tenantMemberCreate', [
+                'member_type' => 'student',
+                'member_id' => 1,
+                'library_card_no' => 'ISOTESTCARD01',
+            ]);
+            $this->assertSame(200, $createStatus);
+            $this->assertMatchesRegularExpression('/Member created with id (\d+)/', $createBody);
+            preg_match('/Member created with id (\d+)/', $createBody, $matches);
+            $ownId = (int) $matches[1];
+
+            $otherCookieJar = tempnam(sys_get_temp_dir(), 'admgate_test_other_');
+            $realCookieJar = $this->cookieJar;
+            $this->cookieJar = $otherCookieJar;
+
+            try {
+                [$otherLoginStatus, ] = $this->curlPostPilotLoginAs(26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!');
+                $this->assertContains($otherLoginStatus, [200, 302, 303, 307]);
+
+                // Tenant 26 references tenant 25's real student #1 -- must 404.
+                [$forgeStatus, ] = $this->curlPost('admin/member/tenantMemberCreate', [
+                    'member_type' => 'student',
+                    'member_id' => 1,
+                    'library_card_no' => 'FORGEDCARD01',
+                ]);
+                $this->assertSame(404, $forgeStatus, 'referencing another tenant student as member_id must be rejected');
+
+                [$crossDeleteStatus, $crossDeleteBody] = $this->curlGet('admin/member/tenantMemberDelete/' . $ownId);
+                $this->assertSame(200, $crossDeleteStatus);
+                $this->assertStringContainsString('No matching member found for this tenant.', $crossDeleteBody);
+            } finally {
+                $this->cookieJar = $realCookieJar;
+                @unlink($otherCookieJar);
+            }
+
+            $pdo = new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', '');
+            $stillThere = (int) $pdo->query('SELECT COUNT(*) FROM libarary_members WHERE id = ' . $ownId)->fetchColumn();
+            $this->assertSame(1, $stillThere, 'the row must still exist after the other tenant\'s attempted cross-tenant delete');
+
+            [$deleteStatus, $deleteBody] = $this->curlGet('admin/member/tenantMemberDelete/' . $ownId);
+            $this->assertSame(200, $deleteStatus);
+            $this->assertStringContainsString('Member deleted.', $deleteBody);
+            $ownId = null;
+        } finally {
+            if ($ownId !== null) {
+                (new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', ''))
+                    ->exec('DELETE FROM libarary_members WHERE id = ' . $ownId);
+            }
+            (new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', ''))
+                ->exec("DELETE FROM libarary_members WHERE library_card_no LIKE 'ISOTESTCARD%' OR library_card_no LIKE 'FORGEDCARD%'");
+        }
+    }
+
     public function testTenantEventCreateEditDeleteAreIsolatedPerTenant(): void
     {
         $this->verifyTenantCrudCrossTenantIsolation(

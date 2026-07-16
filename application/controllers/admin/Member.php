@@ -283,6 +283,60 @@ class Member extends Admin_Controller
         }
     }
 
+    // member_id is a polymorphic FK discriminated by member_type
+    // ('student' -> students table, 'teacher' -> staff table). issue()/
+    // bookreturn() (book-lending) are a separate feature and out of scope.
+    public function tenantMemberCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $this->form_validation->set_rules('member_type', 'Member Type', 'trim|required|xss_clean|in_list[student,teacher]');
+        $this->form_validation->set_rules('member_id', 'Member', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/member/tenant_member_create', ['created' => false]);
+
+            return;
+        }
+
+        $memberType = $this->input->post('member_type');
+        $memberId   = (int) $this->input->post('member_id');
+        $ownerTable = $memberType === 'teacher' ? 'staff' : 'students';
+        if (!$this->librarymanagement_model->tenantScopedFind($ownerTable, $tenantId, $memberId)) {
+            show_404();
+
+            return;
+        }
+
+        $id = $this->librarymanagement_model->tenantScopedInsert('libarary_members', $tenantId, [
+            'member_type'     => $memberType,
+            'member_id'       => $memberId,
+            'library_card_no' => (string) $this->input->post('library_card_no'),
+        ]);
+
+        $this->load->view('admin/member/tenant_member_create', ['created' => true, 'id' => $id]);
+    }
+
+    public function tenantMemberDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $deleted = $this->librarymanagement_model->tenantScopedDelete('libarary_members', $tenantId, (int) $id);
+        $this->load->view('admin/member/tenant_member_delete', ['deleted' => $deleted]);
+    }
+
     public function surrender()
     {
         $this->form_validation->set_rules('member_id', $this->lang->line('book'), 'trim|required|xss_clean');
