@@ -2740,6 +2740,45 @@ final class AdminControllerTenantGateTest extends TestCase
         }
     }
 
+    public function testTenantAlumniCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/alumni/tenantAlumniCreate',
+            ['student_id' => 1, 'current_phone' => '1234567890', 'current_email' => 'x@x.com'],
+            'Alumni record created with id',
+            'admin/alumni/tenantAlumniEdit/',
+            'admin/alumni/tenantAlumniDelete/',
+            '1234567890',
+            'Alumni record deleted.',
+            'No matching alumni record found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantAlumniCreateRejectsForgedStudentId(): void
+    {
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        $otherCookieJar = tempnam(sys_get_temp_dir(), 'admgate_test_other_');
+        $realCookieJar = $this->cookieJar;
+        $this->cookieJar = $otherCookieJar;
+
+        try {
+            [$otherLoginStatus, ] = $this->curlPostPilotLoginAs(26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!');
+            $this->assertContains($otherLoginStatus, [200, 302, 303, 307]);
+
+            // Tenant 26 references tenant 25's real student #1 -- must 404.
+            [$forgeStatus, ] = $this->curlPost('admin/alumni/tenantAlumniCreate', [
+                'student_id' => 1, 'current_phone' => '1234567890',
+            ]);
+            $this->assertSame(404, $forgeStatus, 'referencing another tenant student_id must be rejected');
+        } finally {
+            $this->cookieJar = $realCookieJar;
+            @unlink($otherCookieJar);
+        }
+    }
+
     public function testTenantBookCreateEditDeleteAreIsolatedPerTenant(): void
     {
         $this->verifyTenantCrudCrossTenantIsolation(

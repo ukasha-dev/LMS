@@ -141,6 +141,7 @@ class Admin_Controller extends MY_Controller
                 'approve_leave' => ['tenantapproveleavecreate', 'tenantapproveleaveedit', 'tenantapproveleavedelete'],
                 'syllabus' => ['tenantsyllabuscreate', 'tenantsyllabusedit', 'tenantsyllabusdelete'],
                 'homework' => ['tenanthomeworkcreate', 'tenanthomeworkedit', 'tenanthomeworkdelete'],
+                'alumni' => ['tenantalumnicreate', 'tenantalumniedit', 'tenantalumnidelete'],
             ];
             if (!isset($allowedTenantRoutes[$activeController]) || !in_array($activeMethod, $allowedTenantRoutes[$activeController], true)) {
                 show_404();

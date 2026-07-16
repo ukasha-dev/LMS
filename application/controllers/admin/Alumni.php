@@ -16,6 +16,7 @@ class Alumni extends Admin_Controller
         $this->load->library('smsgateway');
         $this->load->library('mailsmsconf');
         $this->load->library('encoding_lib');
+        $this->load->library('tenant_media_storage');
     }
 
     public function alumnilist()
@@ -440,6 +441,108 @@ class Alumni extends Admin_Controller
             return true;
         }
         return true;
+    }
+
+    // Base entity only (alumni_students). alumni_events (own table, 2
+    // nullable FKs + notification fan-out to matching alumni) is a
+    // separate joined feature, out of scope.
+    public function tenantAlumniCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $this->form_validation->set_rules('student_id', 'Student', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('current_phone', 'Current Phone', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/alumni/tenant_alumni_create', ['created' => false]);
+
+            return;
+        }
+
+        $studentId = (int) $this->input->post('student_id');
+        if (!$this->alumni_model->tenantScopedFind('students', $tenantId, $studentId)) {
+            show_404();
+
+            return;
+        }
+
+        $id = $this->alumni_model->tenantScopedInsert('alumni_students', $tenantId, [
+            'student_id'    => $studentId,
+            'current_email' => (string) $this->input->post('current_email'),
+            'current_phone' => $this->input->post('current_phone'),
+            'occupation'    => (string) $this->input->post('occupation'),
+            'address'       => (string) $this->input->post('address'),
+            'photo'         => $this->tenant_media_storage->upload('documents', $tenantId, 'alumni_student_images') ?: null,
+        ]);
+
+        $this->load->view('admin/alumni/tenant_alumni_create', ['created' => true, 'id' => $id]);
+    }
+
+    public function tenantAlumniEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $alumni = $this->alumni_model->tenantScopedFind('alumni_students', $tenantId, (int) $id);
+        if (!$alumni) {
+            show_404();
+
+            return;
+        }
+
+        if ($this->input->method() === 'post') {
+            $this->form_validation->set_rules('current_phone', 'Current Phone', 'trim|required|xss_clean');
+
+            if ($this->form_validation->run() !== false) {
+                $newPhoto = $this->tenant_media_storage->upload('documents', $tenantId, 'alumni_student_images');
+                if ($newPhoto) {
+                    if (!empty($alumni['photo'])) {
+                        $this->tenant_media_storage->delete($alumni['photo']);
+                    }
+                }
+
+                $this->alumni_model->tenantScopedUpdate('alumni_students', $tenantId, (int) $id, [
+                    'current_email' => (string) $this->input->post('current_email'),
+                    'current_phone' => $this->input->post('current_phone'),
+                    'occupation'    => (string) $this->input->post('occupation'),
+                    'address'       => (string) $this->input->post('address'),
+                    'photo'         => $newPhoto ?: $alumni['photo'],
+                ]);
+                $alumni = $this->alumni_model->tenantScopedFind('alumni_students', $tenantId, (int) $id);
+            }
+        }
+
+        $this->load->view('admin/alumni/tenant_alumni_edit', ['alumni' => $alumni]);
+    }
+
+    public function tenantAlumniDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $alumni  = $this->alumni_model->tenantScopedFind('alumni_students', $tenantId, (int) $id);
+        $deleted = $this->alumni_model->tenantScopedDelete('alumni_students', $tenantId, (int) $id);
+        if ($deleted && $alumni && !empty($alumni['photo'])) {
+            $this->tenant_media_storage->delete($alumni['photo']);
+        }
+
+        $this->load->view('admin/alumni/tenant_alumni_delete', ['deleted' => $deleted]);
     }
 
 }
