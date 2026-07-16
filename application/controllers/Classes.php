@@ -164,4 +164,79 @@ class Classes extends Admin_Controller
         $this->load->view('class/tenant_class_list', ['classList' => $classList]);
     }
 
+    // Base entity only (classes table). class_sections is a separate joined
+    // feature (own table, own tenant_id, own FK to classes.id) -- not part
+    // of this scoped-slice CRUD, same split used for other multi-table
+    // legacy screens in this migration.
+    public function tenantClassCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $this->form_validation->set_rules('class', 'Class', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('class/tenant_class_create', ['created' => false]);
+
+            return;
+        }
+
+        $id = $this->class_model->tenantScopedInsert('classes', $tenantId, [
+            'class'     => $this->input->post('class'),
+            'is_active' => 'yes',
+        ]);
+
+        $this->load->view('class/tenant_class_create', ['created' => true, 'id' => $id]);
+    }
+
+    public function tenantClassEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $class = $this->class_model->tenantScopedFind('classes', $tenantId, (int) $id);
+        if (!$class) {
+            show_404();
+
+            return;
+        }
+
+        if ($this->input->method() === 'post') {
+            $this->form_validation->set_rules('class', 'Class', 'trim|required|xss_clean');
+
+            if ($this->form_validation->run() !== false) {
+                $this->class_model->tenantScopedUpdate('classes', $tenantId, (int) $id, [
+                    'class' => $this->input->post('class'),
+                ]);
+                $class = $this->class_model->tenantScopedFind('classes', $tenantId, (int) $id);
+            }
+        }
+
+        $this->load->view('class/tenant_class_edit', ['class' => $class]);
+    }
+
+    public function tenantClassDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $deleted = $this->class_model->tenantScopedDelete('classes', $tenantId, (int) $id);
+        $this->load->view('class/tenant_class_delete', ['deleted' => $deleted]);
+    }
+
 }

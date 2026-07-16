@@ -2306,6 +2306,21 @@ final class AdminControllerTenantGateTest extends TestCase
         }
     }
 
+    public function testTenantClassCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'classes/tenantClassCreate',
+            ['class' => 'Isolation Test Class'],
+            'Class created with id',
+            'classes/tenantClassEdit/',
+            'classes/tenantClassDelete/',
+            'Isolation Test Class',
+            'Class deleted.',
+            'No matching class found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
     public function testTenantStudentTimelineCreateEditDeleteAreIsolatedPerTenant(): void
     {
         $this->verifyTenantCrudCrossTenantIsolation(

@@ -66,7 +66,7 @@ class Admin_Controller extends MY_Controller
                 'feesforward' => ['tenantfeeslist'],
                 'stuattendence' => ['tenantattendancelist', 'tenantattendancesave'],
                 'leaverequest' => ['tenantleaverequestlist'],
-                'classes' => ['tenantclasslist'],
+                'classes' => ['tenantclasslist', 'tenantclasscreate', 'tenantclassedit', 'tenantclassdelete'],
                 'sections' => ['tenantsectionlist', 'tenantsectioncreate', 'tenantsectionedit', 'tenantsectiondelete'],
                 'roles' => ['tenantroleslist', 'tenantrolespermissionslist', 'tenantrolescreate', 'tenantrolesedit', 'tenantrolesdelete'],
                 'department' => ['tenantdepartmentlist', 'tenantdepartmentcreate', 'tenantdepartmentedit', 'tenantdepartmentdelete'],
