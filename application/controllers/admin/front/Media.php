@@ -12,6 +12,74 @@ class Media extends Admin_Controller
         parent::__construct();
         $this->load->library('media_storage');
         $this->load->model("filetype_model");
+        $this->load->library('tenant_media_storage');
+        $this->load->model('cms_media_model');
+    }
+
+    // 0 real FKs, single-table. Legacy addImage()/addVideo() do
+    // multi-file batch resize + thumbnail generation, and addVideo()
+    // ingests an external YouTube oEmbed API call baked into the write
+    // flow (same shape already excluded for Video_tutorial) -- both are
+    // out of scope here. This is a simpler, single-image upload path
+    // using the proven Tenant_media_storage pattern; it doesn't attempt
+    // to reproduce legacy thumbnail generation.
+    public function tenantMediaCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        if ($this->input->method() !== 'post') {
+            $this->load->view('admin/front/media/tenant_media_create', ['created' => false]);
+
+            return;
+        }
+
+        $storedPath = $this->tenant_media_storage->upload('media_file', $tenantId, 'front_cms_media');
+        if (!$storedPath) {
+            $this->load->view('admin/front/media/tenant_media_create', ['created' => false]);
+
+            return;
+        }
+
+        $dirPath  = dirname($storedPath) . '/';
+        $imgName  = basename($storedPath);
+        $fileMeta = $_FILES['media_file'] ?? [];
+
+        $id = $this->cms_media_model->tenantScopedInsert('front_cms_media_gallery', $tenantId, [
+            'image'      => $imgName,
+            'img_name'   => $imgName,
+            'dir_path'   => $dirPath,
+            'file_type'  => (string) ($fileMeta['type'] ?? ''),
+            'file_size'  => (string) ($fileMeta['size'] ?? '0'),
+            'vid_url'    => '',
+            'vid_title'  => '',
+        ]);
+
+        $this->load->view('admin/front/media/tenant_media_create', ['created' => true, 'id' => $id, 'storedPath' => $storedPath]);
+    }
+
+    public function tenantMediaDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $media = $this->cms_media_model->tenantScopedFind('front_cms_media_gallery', $tenantId, (int) $id);
+        $deleted = $this->cms_media_model->tenantScopedDelete('front_cms_media_gallery', $tenantId, (int) $id);
+        if ($deleted && $media) {
+            $this->tenant_media_storage->delete($media['dir_path'] . $media['img_name']);
+        }
+
+        $this->load->view('admin/front/media/tenant_media_delete', ['deleted' => $deleted]);
     }
 
     public function index()

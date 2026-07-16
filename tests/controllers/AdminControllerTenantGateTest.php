@@ -2351,6 +2351,59 @@ final class AdminControllerTenantGateTest extends TestCase
         );
     }
 
+    public function testTenantMediaUploadIsStoredUnderATenantScopedDirectoryAndIsolatedPerTenant(): void
+    {
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        $pngBytes = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=');
+        $tmpFile = tempnam(sys_get_temp_dir(), 'admgate_mediaphoto_') . '.png';
+        file_put_contents($tmpFile, $pngBytes);
+
+        $mediaId = null;
+
+        try {
+            [$createStatus, $createBody] = $this->curlPostMultipart('admin/front/media/tenantMediaCreate', [], 'media_file', $tmpFile);
+            $this->assertSame(200, $createStatus);
+            $this->assertMatchesRegularExpression('/Media created with id (\d+)/', $createBody);
+            preg_match('/Media created with id (\d+)/', $createBody, $matches);
+            $mediaId = (int) $matches[1];
+
+            $this->assertMatchesRegularExpression('#tenant_25/front_cms_media/\S+!test-photo\.png#', $createBody);
+
+            $otherCookieJar = tempnam(sys_get_temp_dir(), 'admgate_test_other_');
+            $realCookieJar = $this->cookieJar;
+            $this->cookieJar = $otherCookieJar;
+
+            try {
+                [$otherLoginStatus, ] = $this->curlPostPilotLoginAs(26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!');
+                $this->assertContains($otherLoginStatus, [200, 302, 303, 307]);
+
+                [$crossDeleteStatus, $crossDeleteBody] = $this->curlGet('admin/front/media/tenantMediaDelete/' . $mediaId);
+                $this->assertSame(200, $crossDeleteStatus);
+                $this->assertStringContainsString('No matching media found for this tenant.', $crossDeleteBody);
+            } finally {
+                $this->cookieJar = $realCookieJar;
+                @unlink($otherCookieJar);
+            }
+
+            $pdo = new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', '');
+            $stillThere = (int) $pdo->query('SELECT COUNT(*) FROM front_cms_media_gallery WHERE id = ' . $mediaId)->fetchColumn();
+            $this->assertSame(1, $stillThere, 'the row must still exist after the other tenant\'s attempted cross-tenant delete');
+
+            [$deleteStatus, $deleteBody] = $this->curlGet('admin/front/media/tenantMediaDelete/' . $mediaId);
+            $this->assertSame(200, $deleteStatus);
+            $this->assertStringContainsString('Media deleted.', $deleteBody);
+            $mediaId = null;
+        } finally {
+            @unlink($tmpFile);
+            if ($mediaId !== null) {
+                (new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', ''))
+                    ->exec('DELETE FROM front_cms_media_gallery WHERE id = ' . $mediaId);
+            }
+        }
+    }
+
     public function testTenantBookCreateEditDeleteAreIsolatedPerTenant(): void
     {
         $this->verifyTenantCrudCrossTenantIsolation(

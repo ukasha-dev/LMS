@@ -4,7 +4,7 @@ if (!defined('BASEPATH')) {
     exit('No direct script access allowed');
 }
 
-class Cms_media_model extends CI_Model
+class Cms_media_model extends MY_Model
 {
 
     public function __construct()
