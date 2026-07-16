@@ -172,4 +172,87 @@ class Gallery extends Admin_Controller
         redirect('admin/front/gallery/');
     }
 
+    // Base entity only (front_cms_programs, type=gallery). The photo-list
+    // batch-diff sub-feature (front_cms_program_photos, add/remove sets)
+    // is a separate joined feature, same split as Notice/Page/Events.
+    public function tenantGalleryCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $this->form_validation->set_rules('title', 'Title', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('description', 'Description', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/front/gallery/tenant_gallery_create', ['created' => false]);
+
+            return;
+        }
+
+        $id = $this->cms_program_model->tenantScopedInsert('front_cms_programs', $tenantId, [
+            'type'             => 'gallery',
+            'title'            => $this->input->post('title'),
+            'description'      => (string) $this->input->post('description'),
+            'sidebar'          => $this->input->post('sidebar') ? 1 : 0,
+            'meta_title'       => (string) $this->input->post('meta_title'),
+            'meta_keyword'     => (string) $this->input->post('meta_keywords'),
+            'meta_description' => (string) $this->input->post('meta_description'),
+            'feature_image'    => (string) $this->input->post('image'),
+        ]);
+
+        $this->load->view('admin/front/gallery/tenant_gallery_create', ['created' => true, 'id' => $id]);
+    }
+
+    public function tenantGalleryEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $gallery = $this->cms_program_model->tenantScopedFind('front_cms_programs', $tenantId, (int) $id);
+        if (!$gallery) {
+            show_404();
+
+            return;
+        }
+
+        if ($this->input->method() === 'post') {
+            $this->form_validation->set_rules('title', 'Title', 'trim|required|xss_clean');
+            $this->form_validation->set_rules('description', 'Description', 'trim|required|xss_clean');
+
+            if ($this->form_validation->run() !== false) {
+                $this->cms_program_model->tenantScopedUpdate('front_cms_programs', $tenantId, (int) $id, [
+                    'title'       => $this->input->post('title'),
+                    'description' => (string) $this->input->post('description'),
+                ]);
+                $gallery = $this->cms_program_model->tenantScopedFind('front_cms_programs', $tenantId, (int) $id);
+            }
+        }
+
+        $this->load->view('admin/front/gallery/tenant_gallery_edit', ['gallery' => $gallery]);
+    }
+
+    public function tenantGalleryDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $deleted = $this->cms_program_model->tenantScopedDelete('front_cms_programs', $tenantId, (int) $id);
+        $this->load->view('admin/front/gallery/tenant_gallery_delete', ['deleted' => $deleted]);
+    }
+
 }

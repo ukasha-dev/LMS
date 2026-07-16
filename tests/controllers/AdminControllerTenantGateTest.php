@@ -2483,6 +2483,21 @@ final class AdminControllerTenantGateTest extends TestCase
         );
     }
 
+    public function testTenantGalleryCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/front/gallery/tenantGalleryCreate',
+            ['title' => 'Isolation Test Gallery', 'description' => 'x'],
+            'Gallery created with id',
+            'admin/front/gallery/tenantGalleryEdit/',
+            'admin/front/gallery/tenantGalleryDelete/',
+            'Isolation Test Gallery',
+            'Gallery deleted.',
+            'No matching gallery found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
     public function testTenantBookCreateEditDeleteAreIsolatedPerTenant(): void
     {
         $this->verifyTenantCrudCrossTenantIsolation(

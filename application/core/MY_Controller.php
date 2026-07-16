@@ -136,6 +136,7 @@ class Admin_Controller extends MY_Controller
                 'media' => ['tenantmediacreate', 'tenantmediadelete'],
                 'banner' => ['tenantbanneradd', 'tenantbannerdelete'],
                 'events' => ['tenanteventscreate', 'tenanteventsedit', 'tenanteventsdelete'],
+                'gallery' => ['tenantgallerycreate', 'tenantgalleryedit', 'tenantgallerydelete'],
             ];
             if (!isset($allowedTenantRoutes[$activeController]) || !in_array($activeMethod, $allowedTenantRoutes[$activeController], true)) {
                 show_404();
