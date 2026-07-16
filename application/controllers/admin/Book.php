@@ -158,6 +158,95 @@ class Book extends Admin_Controller
         redirect('admin/book/getall');
     }
 
+    // 0 real FKs (subject is free text, not a join). book_issues is a
+    // separate, already out-of-scope feature (issue/return), untouched here.
+    public function tenantBookCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $this->form_validation->set_rules('book_title', 'Title', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('book_no', 'Book No', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('isbn_no', 'ISBN', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('rack_no', 'Rack No', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/book/tenant_book_create', ['created' => false]);
+
+            return;
+        }
+
+        $id = $this->book_model->tenantScopedInsert('books', $tenantId, [
+            'book_title'  => $this->input->post('book_title'),
+            'book_no'     => $this->input->post('book_no'),
+            'isbn_no'     => $this->input->post('isbn_no'),
+            'rack_no'     => $this->input->post('rack_no'),
+            'subject'     => (string) $this->input->post('subject'),
+            'publish'     => (string) $this->input->post('publish'),
+            'author'      => (string) $this->input->post('author'),
+            'qty'         => (int) $this->input->post('qty'),
+            'description' => (string) $this->input->post('description'),
+        ]);
+
+        $this->load->view('admin/book/tenant_book_create', ['created' => true, 'id' => $id]);
+    }
+
+    public function tenantBookEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $book = $this->book_model->tenantScopedFind('books', $tenantId, (int) $id);
+        if (!$book) {
+            show_404();
+
+            return;
+        }
+
+        if ($this->input->method() === 'post') {
+            $this->form_validation->set_rules('book_title', 'Title', 'trim|required|xss_clean');
+            $this->form_validation->set_rules('book_no', 'Book No', 'trim|required|xss_clean');
+            $this->form_validation->set_rules('isbn_no', 'ISBN', 'trim|required|xss_clean');
+            $this->form_validation->set_rules('rack_no', 'Rack No', 'trim|required|xss_clean');
+
+            if ($this->form_validation->run() !== false) {
+                $this->book_model->tenantScopedUpdate('books', $tenantId, (int) $id, [
+                    'book_title' => $this->input->post('book_title'),
+                    'book_no'    => $this->input->post('book_no'),
+                    'isbn_no'    => $this->input->post('isbn_no'),
+                    'rack_no'    => $this->input->post('rack_no'),
+                ]);
+                $book = $this->book_model->tenantScopedFind('books', $tenantId, (int) $id);
+            }
+        }
+
+        $this->load->view('admin/book/tenant_book_edit', ['book' => $book]);
+    }
+
+    public function tenantBookDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $deleted = $this->book_model->tenantScopedDelete('books', $tenantId, (int) $id);
+        $this->load->view('admin/book/tenant_book_delete', ['deleted' => $deleted]);
+    }
+
     public function getAvailQuantity()
     {
         $book_id   = $this->input->post('book_id');

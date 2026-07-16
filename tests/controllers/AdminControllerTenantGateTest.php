@@ -2321,6 +2321,21 @@ final class AdminControllerTenantGateTest extends TestCase
         );
     }
 
+    public function testTenantBookCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/book/tenantBookCreate',
+            ['book_title' => 'Isolation Test Book', 'book_no' => 'IB101', 'isbn_no' => 'ISBN-IB101', 'rack_no' => 'R1'],
+            'Book created with id',
+            'admin/book/tenantBookEdit/',
+            'admin/book/tenantBookDelete/',
+            'Isolation Test Book',
+            'Book deleted.',
+            'No matching book found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
     public function testTenantMemberCreateDeleteIsolatedAndRejectsForgedMemberId(): void
     {
         [$loginStatus, ] = $this->curlPostPilotLogin();

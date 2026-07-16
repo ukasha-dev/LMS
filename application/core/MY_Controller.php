@@ -130,6 +130,7 @@ class Admin_Controller extends MY_Controller
                 'timeline' => ['tenantstudenttimelinecreate', 'tenantstudenttimelineedit', 'tenantstudenttimelinedelete', 'tenantstafftimelinecreate', 'tenantstafftimelineedit', 'tenantstafftimelinedelete'],
                 'calendar' => ['tenanteventcreate', 'tenanteventedit', 'tenanteventdelete'],
                 'member' => ['tenantmembercreate', 'tenantmemberdelete'],
+                'book' => ['tenantbookcreate', 'tenantbookedit', 'tenantbookdelete'],
             ];
             if (!isset($allowedTenantRoutes[$activeController]) || !in_array($activeMethod, $allowedTenantRoutes[$activeController], true)) {
                 show_404();
