@@ -12,6 +12,7 @@ class Income extends Admin_Controller
         parent::__construct();
         $this->load->helper('form');
         $this->load->library('media_storage');
+        $this->load->library('tenant_media_storage');
         $this->config->load('app-config');
         $this->load->library("datatables");
     }
@@ -394,6 +395,123 @@ class Income extends Admin_Controller
         );
         echo json_encode($json_data);
 
+    }
+
+    // One real FK: income_head_id -> income_head, verified before use.
+    public function tenantIncomeCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $this->form_validation->set_rules('inc_head_id', 'Income Head', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('amount', 'Amount', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('name', 'Name', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('date', 'Date', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/income/tenant_income_create', ['created' => false]);
+
+            return;
+        }
+
+        $incHeadId = (int) $this->input->post('inc_head_id');
+        if (!$this->income_model->tenantScopedFind('income_head', $tenantId, $incHeadId)) {
+            show_404();
+
+            return;
+        }
+
+        $incomeId = $this->income_model->tenantScopedInsert('income', $tenantId, [
+            'income_head_id' => $incHeadId,
+            'name'           => $this->input->post('name'),
+            'date'           => $this->input->post('date'),
+            'amount'         => (float) $this->input->post('amount'),
+            'invoice_no'     => (string) $this->input->post('invoice_no'),
+            'note'           => (string) $this->input->post('description'),
+            'documents'      => $this->tenant_media_storage->upload('documents', $tenantId, 'school_income'),
+        ]);
+
+        $this->load->view('admin/income/tenant_income_create', ['created' => true, 'id' => $incomeId]);
+    }
+
+    public function tenantIncomeEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $income = $this->income_model->tenantScopedFind('income', $tenantId, (int) $id);
+        if (!$income) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('inc_head_id', 'Income Head', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('amount', 'Amount', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('name', 'Name', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('date', 'Date', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/income/tenant_income_edit', ['updated' => false, 'income' => $income]);
+
+            return;
+        }
+
+        $incHeadId = (int) $this->input->post('inc_head_id');
+        if (!$this->income_model->tenantScopedFind('income_head', $tenantId, $incHeadId)) {
+            show_404();
+
+            return;
+        }
+
+        $updateData = [
+            'income_head_id' => $incHeadId,
+            'name'           => $this->input->post('name'),
+            'date'           => $this->input->post('date'),
+            'amount'         => (float) $this->input->post('amount'),
+            'invoice_no'     => (string) $this->input->post('invoice_no'),
+            'note'           => (string) $this->input->post('description'),
+        ];
+
+        $newDoc = $this->tenant_media_storage->upload('documents', $tenantId, 'school_income');
+        if ($newDoc) {
+            $this->tenant_media_storage->delete($income['documents']);
+            $updateData['documents'] = $newDoc;
+        }
+
+        $this->income_model->tenantScopedUpdate('income', $tenantId, (int) $id, $updateData);
+
+        $income = $this->income_model->tenantScopedFind('income', $tenantId, (int) $id);
+        $this->load->view('admin/income/tenant_income_edit', ['updated' => true, 'income' => $income]);
+    }
+
+    public function tenantIncomeDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $income  = $this->income_model->tenantScopedFind('income', $tenantId, (int) $id);
+        $deleted = $this->income_model->tenantScopedDelete('income', $tenantId, (int) $id);
+        if ($deleted && $income) {
+            $this->tenant_media_storage->delete($income['documents']);
+        }
+
+        $this->load->view('admin/income/tenant_income_delete', ['deleted' => $deleted]);
     }
 
 }

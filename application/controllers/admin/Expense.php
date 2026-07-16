@@ -12,6 +12,7 @@ class Expense extends Admin_Controller
         parent::__construct();
         $this->load->library('Customlib');
         $this->load->library('media_storage');
+        $this->load->library('tenant_media_storage');
         $this->config->load('app-config');
         $this->load->library("datatables");
     }
@@ -396,5 +397,122 @@ class Expense extends Admin_Controller
             "data"            => $dt_data,
         );
         echo json_encode($json_data);
+    }
+
+    // One real FK: exp_head_id -> expense_head, verified before use.
+    public function tenantExpenseCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $this->form_validation->set_rules('exp_head_id', 'Expense Head', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('amount', 'Amount', 'trim|required|numeric|xss_clean');
+        $this->form_validation->set_rules('name', 'Name', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('date', 'Date', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/expense/tenant_expense_create', ['created' => false]);
+
+            return;
+        }
+
+        $expHeadId = (int) $this->input->post('exp_head_id');
+        if (!$this->expense_model->tenantScopedFind('expense_head', $tenantId, $expHeadId)) {
+            show_404();
+
+            return;
+        }
+
+        $expenseId = $this->expense_model->tenantScopedInsert('expenses', $tenantId, [
+            'exp_head_id' => $expHeadId,
+            'name'        => $this->input->post('name'),
+            'date'        => $this->input->post('date'),
+            'amount'      => (float) $this->input->post('amount'),
+            'invoice_no'  => (string) $this->input->post('invoice_no'),
+            'note'        => (string) $this->input->post('description'),
+            'documents'   => $this->tenant_media_storage->upload('documents', $tenantId, 'school_expense'),
+        ]);
+
+        $this->load->view('admin/expense/tenant_expense_create', ['created' => true, 'id' => $expenseId]);
+    }
+
+    public function tenantExpenseEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $expense = $this->expense_model->tenantScopedFind('expenses', $tenantId, (int) $id);
+        if (!$expense) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('exp_head_id', 'Expense Head', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('amount', 'Amount', 'trim|required|numeric|xss_clean');
+        $this->form_validation->set_rules('name', 'Name', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('date', 'Date', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/expense/tenant_expense_edit', ['updated' => false, 'expense' => $expense]);
+
+            return;
+        }
+
+        $expHeadId = (int) $this->input->post('exp_head_id');
+        if (!$this->expense_model->tenantScopedFind('expense_head', $tenantId, $expHeadId)) {
+            show_404();
+
+            return;
+        }
+
+        $updateData = [
+            'exp_head_id' => $expHeadId,
+            'name'        => $this->input->post('name'),
+            'date'        => $this->input->post('date'),
+            'amount'      => (float) $this->input->post('amount'),
+            'invoice_no'  => (string) $this->input->post('invoice_no'),
+            'note'        => (string) $this->input->post('description'),
+        ];
+
+        $newDoc = $this->tenant_media_storage->upload('documents', $tenantId, 'school_expense');
+        if ($newDoc) {
+            $this->tenant_media_storage->delete($expense['documents']);
+            $updateData['documents'] = $newDoc;
+        }
+
+        $this->expense_model->tenantScopedUpdate('expenses', $tenantId, (int) $id, $updateData);
+
+        $expense = $this->expense_model->tenantScopedFind('expenses', $tenantId, (int) $id);
+        $this->load->view('admin/expense/tenant_expense_edit', ['updated' => true, 'expense' => $expense]);
+    }
+
+    public function tenantExpenseDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $expense = $this->expense_model->tenantScopedFind('expenses', $tenantId, (int) $id);
+        $deleted = $this->expense_model->tenantScopedDelete('expenses', $tenantId, (int) $id);
+        if ($deleted && $expense) {
+            $this->tenant_media_storage->delete($expense['documents']);
+        }
+
+        $this->load->view('admin/expense/tenant_expense_delete', ['deleted' => $deleted]);
     }
 }

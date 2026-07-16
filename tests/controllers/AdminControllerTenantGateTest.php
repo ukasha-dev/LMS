@@ -2321,6 +2321,118 @@ final class AdminControllerTenantGateTest extends TestCase
         );
     }
 
+    public function testTenantExpenseCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/expense/tenantExpenseCreate',
+            ['exp_head_id' => 1, 'amount' => '100', 'name' => 'Isolation Test Expense', 'date' => '2026-01-23'],
+            'Expense created with id',
+            'admin/expense/tenantExpenseEdit/',
+            'admin/expense/tenantExpenseDelete/',
+            'Isolation Test Expense',
+            'Expense deleted.',
+            'No matching expense found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantExpenseCreateRejectsForgedExpenseHeadId(): void
+    {
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        $otherCookieJar = tempnam(sys_get_temp_dir(), 'admgate_test_other_');
+        $realCookieJar = $this->cookieJar;
+        $this->cookieJar = $otherCookieJar;
+
+        try {
+            [$otherLoginStatus, ] = $this->curlPostPilotLoginAs(26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!');
+            $this->assertContains($otherLoginStatus, [200, 302, 303, 307]);
+
+            // Tenant 26 references tenant 25's real expense_head #1 -- must 404.
+            [$forgeStatus, ] = $this->curlPost('admin/expense/tenantExpenseCreate', [
+                'exp_head_id' => 1,
+                'amount' => '100',
+                'name' => 'Forged Expense',
+                'date' => '2026-01-23',
+            ]);
+            $this->assertSame(404, $forgeStatus, 'referencing another tenant exp_head_id must be rejected');
+        } finally {
+            $this->cookieJar = $realCookieJar;
+            @unlink($otherCookieJar);
+        }
+    }
+
+    public function testTenantIncomeCreateEditDeleteRejectsForgedForeignKeysAndIsolatesPerTenant(): void
+    {
+        // income_head has zero real data for any tenant -- create real
+        // fixture rows directly, same precedent as Hostelroom's hostel/
+        // room_types fixtures when no pre-existing data was available.
+        $pdo = new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', '');
+        $pdo->exec("INSERT INTO income_head (income_category, is_active, is_deleted, tenant_id) VALUES ('Isolation Test Head 25', 'yes', 'no', 25)");
+        $tenant25HeadId = (int) $pdo->lastInsertId();
+        $pdo->exec("INSERT INTO income_head (income_category, is_active, is_deleted, tenant_id) VALUES ('Isolation Test Head 26', 'yes', 'no', 26)");
+        $tenant26HeadId = (int) $pdo->lastInsertId();
+
+        try {
+            [$loginStatus, ] = $this->curlPostPilotLogin();
+            $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+            try {
+                [$createStatus, $createBody] = $this->curlPost('admin/income/tenantIncomeCreate', [
+                    'inc_head_id' => $tenant25HeadId,
+                    'amount' => '100',
+                    'name' => 'Isolation Test Income',
+                    'date' => '2026-01-24',
+                ]);
+                $this->assertSame(200, $createStatus);
+                $this->assertMatchesRegularExpression('/Income created with id (\d+)/', $createBody);
+                preg_match('/Income created with id (\d+)/', $createBody, $matches);
+                $incomeId = (int) $matches[1];
+
+                [$editGetStatus, $editGetBody] = $this->curlGet('admin/income/tenantIncomeEdit/' . $incomeId);
+                $this->assertSame(200, $editGetStatus);
+                $this->assertStringContainsString('Isolation Test Income', $editGetBody);
+
+                $otherCookieJar = tempnam(sys_get_temp_dir(), 'admgate_test_other_');
+                $realCookieJar = $this->cookieJar;
+                $this->cookieJar = $otherCookieJar;
+
+                try {
+                    [$otherLoginStatus, ] = $this->curlPostPilotLoginAs(26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!');
+                    $this->assertContains($otherLoginStatus, [200, 302, 303, 307]);
+
+                    // Forgery: tenant 26 references tenant 25's income_head -- must 404.
+                    [$forgeStatus, ] = $this->curlPost('admin/income/tenantIncomeCreate', [
+                        'inc_head_id' => $tenant25HeadId,
+                        'amount' => '100',
+                        'name' => 'Forged Income',
+                        'date' => '2026-01-24',
+                    ]);
+                    $this->assertSame(404, $forgeStatus, 'referencing another tenant income_head_id must be rejected');
+
+                    [$crossEditStatus, ] = $this->curlGet('admin/income/tenantIncomeEdit/' . $incomeId);
+                    $this->assertSame(404, $crossEditStatus, 'the other tenant must not be able to view this row by id');
+                } finally {
+                    $this->cookieJar = $realCookieJar;
+                    @unlink($otherCookieJar);
+                }
+
+                [$finalEditStatus, $finalEditBody] = $this->curlGet('admin/income/tenantIncomeEdit/' . $incomeId);
+                $this->assertSame(200, $finalEditStatus);
+                $this->assertStringContainsString('Isolation Test Income', $finalEditBody);
+
+                [$deleteStatus, $deleteBody] = $this->curlGet('admin/income/tenantIncomeDelete/' . $incomeId);
+                $this->assertSame(200, $deleteStatus);
+                $this->assertStringContainsString('Income deleted.', $deleteBody);
+            } finally {
+                $pdo->exec("DELETE FROM income WHERE name IN ('Isolation Test Income', 'Forged Income')");
+            }
+        } finally {
+            $pdo->exec('DELETE FROM income_head WHERE id IN (' . $tenant25HeadId . ', ' . $tenant26HeadId . ')');
+        }
+    }
+
     private function curlPost(string $path, array $fields): array
     {
         $ch = curl_init(self::BASE_URL . $path);
