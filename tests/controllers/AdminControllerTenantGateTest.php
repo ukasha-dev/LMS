@@ -2679,6 +2679,67 @@ final class AdminControllerTenantGateTest extends TestCase
         }
     }
 
+    public function testTenantHomeworkCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $pdo = new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', '');
+        $pdo->exec('INSERT INTO subject_group_subjects (tenant_id) VALUES (25)');
+        $subjectGroupSubjectId = (int) $pdo->lastInsertId();
+
+        try {
+            $this->verifyTenantCrudCrossTenantIsolation(
+                'homework/tenantHomeworkCreate',
+                [
+                    'class_id' => 1, 'section_id' => 1, 'subject_group_subject_id' => $subjectGroupSubjectId,
+                    'session_id' => 1, 'homework_date' => '2026-01-01', 'submit_date' => '2026-01-08',
+                    'description' => 'Isolation Test Homework Description',
+                ],
+                'Homework created with id',
+                'homework/tenantHomeworkEdit/',
+                'homework/tenantHomeworkDelete/',
+                'Isolation Test Homework Description',
+                'Homework deleted.',
+                'No matching homework found for this tenant.',
+                26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+            );
+        } finally {
+            $pdo->exec("DELETE FROM subject_group_subjects WHERE id = $subjectGroupSubjectId");
+        }
+    }
+
+    public function testTenantHomeworkCreateRejectsForgedSubjectGroupSubjectId(): void
+    {
+        $pdo = new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', '');
+        $pdo->exec('INSERT INTO subject_group_subjects (tenant_id) VALUES (25)');
+        $subjectGroupSubjectId = (int) $pdo->lastInsertId();
+
+        try {
+            [$loginStatus, ] = $this->curlPostPilotLogin();
+            $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+            $otherCookieJar = tempnam(sys_get_temp_dir(), 'admgate_test_other_');
+            $realCookieJar = $this->cookieJar;
+            $this->cookieJar = $otherCookieJar;
+
+            try {
+                [$otherLoginStatus, ] = $this->curlPostPilotLoginAs(26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!');
+                $this->assertContains($otherLoginStatus, [200, 302, 303, 307]);
+
+                // Tenant 26 references tenant 25's real subject_group_subjects row -- must 404.
+                [$forgeStatus, ] = $this->curlPost('homework/tenantHomeworkCreate', [
+                    'class_id' => 9, 'section_id' => 9, 'subject_group_subject_id' => $subjectGroupSubjectId,
+                    'session_id' => 16, 'homework_date' => '2026-01-01', 'submit_date' => '2026-01-08',
+                    'description' => 'Forged Homework',
+                ]);
+                $this->assertSame(404, $forgeStatus, 'referencing another tenant subject_group_subject_id must be rejected');
+            } finally {
+                $this->cookieJar = $realCookieJar;
+                @unlink($otherCookieJar);
+            }
+        } finally {
+            $pdo->exec("DELETE FROM subject_group_subjects WHERE id = $subjectGroupSubjectId");
+        }
+    }
+
     public function testTenantBookCreateEditDeleteAreIsolatedPerTenant(): void
     {
         $this->verifyTenantCrudCrossTenantIsolation(

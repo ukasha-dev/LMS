@@ -12,6 +12,7 @@ class Homework extends Admin_Controller
         parent::__construct();
 
         $this->load->library('media_storage');
+        $this->load->library('tenant_media_storage');
         $this->load->model("homework_model");
         $this->load->model("staff_model");
         $this->load->model("classteacher_model");
@@ -1239,5 +1240,162 @@ class Homework extends Admin_Controller
             $array  = array('status' => 1, 'error' => '', 'params' => $params);
             echo json_encode($array);
         }
+    }
+
+    // Base entity only (homework table). add_evaluation()/submit_assignment
+    // (per-student evaluation/upload, notification-triggering) and the
+    // entire daily_assignment subsystem (separate table, own FK shape) are
+    // out of scope, same base/satellite split used elsewhere. staff_id/
+    // created_by are server-derived from the logged-in staff's session,
+    // not client input.
+    public function tenantHomeworkCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $this->form_validation->set_rules('class_id', 'Class', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('section_id', 'Section', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('subject_group_subject_id', 'Subject', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('session_id', 'Session', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('homework_date', 'Homework Date', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('submit_date', 'Submit Date', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('description', 'Description', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('homework/tenant_homework_create', ['created' => false]);
+
+            return;
+        }
+
+        $classId = (int) $this->input->post('class_id');
+        if (!$this->homework_model->tenantScopedFind('classes', $tenantId, $classId)) {
+            show_404();
+
+            return;
+        }
+
+        $sectionId = (int) $this->input->post('section_id');
+        if (!$this->homework_model->tenantScopedFind('sections', $tenantId, $sectionId)) {
+            show_404();
+
+            return;
+        }
+
+        $subjectGroupSubjectId = (int) $this->input->post('subject_group_subject_id');
+        if (!$this->homework_model->tenantScopedFind('subject_group_subjects', $tenantId, $subjectGroupSubjectId)) {
+            show_404();
+
+            return;
+        }
+
+        $sessionId = (int) $this->input->post('session_id');
+        if (!$this->homework_model->tenantScopedFind('sessions', $tenantId, $sessionId)) {
+            show_404();
+
+            return;
+        }
+
+        $staffId = (int) $this->customlib->getStaffID();
+
+        $id = $this->homework_model->tenantScopedInsert('homework', $tenantId, [
+            'class_id'                 => $classId,
+            'section_id'               => $sectionId,
+            'session_id'               => $sessionId,
+            'staff_id'                 => $staffId,
+            'created_by'               => $staffId,
+            'subject_group_subject_id' => $subjectGroupSubjectId,
+            'subject_id'               => null,
+            'homework_date'            => $this->input->post('homework_date'),
+            'submit_date'              => $this->input->post('submit_date'),
+            'marks'                    => $this->input->post('homework_marks') ?: null,
+            'description'              => $this->input->post('description'),
+            'create_date'              => date('Y-m-d'),
+            'document'                 => $this->tenant_media_storage->upload('userfile', $tenantId, 'homework') ?: '',
+        ]);
+
+        $this->load->view('homework/tenant_homework_create', ['created' => true, 'id' => $id]);
+    }
+
+    public function tenantHomeworkEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $homework = $this->homework_model->tenantScopedFind('homework', $tenantId, (int) $id);
+        if (!$homework) {
+            show_404();
+
+            return;
+        }
+
+        if ($this->input->method() === 'post') {
+            $this->form_validation->set_rules('class_id', 'Class', 'trim|required|xss_clean');
+            $this->form_validation->set_rules('section_id', 'Section', 'trim|required|xss_clean');
+            $this->form_validation->set_rules('description', 'Description', 'trim|required|xss_clean');
+
+            if ($this->form_validation->run() !== false) {
+                $classId = (int) $this->input->post('class_id');
+                if (!$this->homework_model->tenantScopedFind('classes', $tenantId, $classId)) {
+                    show_404();
+
+                    return;
+                }
+
+                $sectionId = (int) $this->input->post('section_id');
+                if (!$this->homework_model->tenantScopedFind('sections', $tenantId, $sectionId)) {
+                    show_404();
+
+                    return;
+                }
+
+                $subjectId = $this->input->post('subject_id');
+                if ($subjectId && !$this->homework_model->tenantScopedFind('subjects', $tenantId, (int) $subjectId)) {
+                    show_404();
+
+                    return;
+                }
+
+                $this->homework_model->tenantScopedUpdate('homework', $tenantId, (int) $id, [
+                    'class_id'      => $classId,
+                    'section_id'    => $sectionId,
+                    'subject_id'    => $subjectId ?: null,
+                    'homework_date' => $this->input->post('homework_date'),
+                    'submit_date'   => $this->input->post('submit_date'),
+                    'description'   => $this->input->post('description'),
+                ]);
+                $homework = $this->homework_model->tenantScopedFind('homework', $tenantId, (int) $id);
+            }
+        }
+
+        $this->load->view('homework/tenant_homework_edit', ['homework' => $homework]);
+    }
+
+    public function tenantHomeworkDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $homework = $this->homework_model->tenantScopedFind('homework', $tenantId, (int) $id);
+        $deleted  = $this->homework_model->tenantScopedDelete('homework', $tenantId, (int) $id);
+        if ($deleted && $homework && !empty($homework['document'])) {
+            $this->tenant_media_storage->delete($homework['document']);
+        }
+
+        $this->load->view('homework/tenant_homework_delete', ['deleted' => $deleted]);
     }
 }
