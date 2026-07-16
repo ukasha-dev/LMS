@@ -138,4 +138,91 @@ class Notice extends Admin_Controller
         redirect('admin/front/notice');
     }
 
+    // 0 real FKs. feature_image is a picker-selected path string here (the
+    // actual upload lives in Media.php), so no Tenant_media_storage call
+    // is needed on this controller.
+    public function tenantNoticeCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $this->form_validation->set_rules('title', 'Title', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('date', 'Date', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('description', 'Description', 'trim|required');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/front/notice/tenant_notice_create', ['created' => false]);
+
+            return;
+        }
+
+        $id = $this->cms_program_model->tenantScopedInsert('front_cms_programs', $tenantId, [
+            'type'             => 'notice',
+            'title'            => $this->input->post('title'),
+            'description'      => (string) $this->input->post('description'),
+            'date'             => $this->input->post('date'),
+            'sidebar'          => $this->input->post('sidebar') ? 1 : 0,
+            'meta_title'       => (string) $this->input->post('meta_title'),
+            'meta_keyword'     => (string) $this->input->post('meta_keywords'),
+            'meta_description' => (string) $this->input->post('meta_description'),
+            'feature_image'    => (string) $this->input->post('image'),
+        ]);
+
+        $this->load->view('admin/front/notice/tenant_notice_create', ['created' => true, 'id' => $id]);
+    }
+
+    public function tenantNoticeEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $notice = $this->cms_program_model->tenantScopedFind('front_cms_programs', $tenantId, (int) $id);
+        if (!$notice) {
+            show_404();
+
+            return;
+        }
+
+        if ($this->input->method() === 'post') {
+            $this->form_validation->set_rules('title', 'Title', 'trim|required|xss_clean');
+            $this->form_validation->set_rules('date', 'Date', 'trim|required|xss_clean');
+            $this->form_validation->set_rules('description', 'Description', 'trim|required');
+
+            if ($this->form_validation->run() !== false) {
+                $this->cms_program_model->tenantScopedUpdate('front_cms_programs', $tenantId, (int) $id, [
+                    'title'       => $this->input->post('title'),
+                    'description' => (string) $this->input->post('description'),
+                    'date'        => $this->input->post('date'),
+                ]);
+                $notice = $this->cms_program_model->tenantScopedFind('front_cms_programs', $tenantId, (int) $id);
+            }
+        }
+
+        $this->load->view('admin/front/notice/tenant_notice_edit', ['notice' => $notice]);
+    }
+
+    public function tenantNoticeDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $deleted = $this->cms_program_model->tenantScopedDelete('front_cms_programs', $tenantId, (int) $id);
+        $this->load->view('admin/front/notice/tenant_notice_delete', ['deleted' => $deleted]);
+    }
+
 }

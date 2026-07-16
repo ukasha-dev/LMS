@@ -2321,6 +2321,21 @@ final class AdminControllerTenantGateTest extends TestCase
         );
     }
 
+    public function testTenantNoticeCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/front/notice/tenantNoticeCreate',
+            ['title' => 'Isolation Test Notice', 'date' => '2026-01-01', 'description' => 'x'],
+            'Notice created with id',
+            'admin/front/notice/tenantNoticeEdit/',
+            'admin/front/notice/tenantNoticeDelete/',
+            'Isolation Test Notice',
+            'Notice deleted.',
+            'No matching notice found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
     public function testTenantBookCreateEditDeleteAreIsolatedPerTenant(): void
     {
         $this->verifyTenantCrudCrossTenantIsolation(

@@ -131,6 +131,7 @@ class Admin_Controller extends MY_Controller
                 'calendar' => ['tenanteventcreate', 'tenanteventedit', 'tenanteventdelete'],
                 'member' => ['tenantmembercreate', 'tenantmemberdelete'],
                 'book' => ['tenantbookcreate', 'tenantbookedit', 'tenantbookdelete'],
+                'notice' => ['tenantnoticecreate', 'tenantnoticeedit', 'tenantnoticedelete'],
             ];
             if (!isset($allowedTenantRoutes[$activeController]) || !in_array($activeMethod, $allowedTenantRoutes[$activeController], true)) {
                 show_404();
