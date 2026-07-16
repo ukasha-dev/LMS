@@ -2235,6 +2235,36 @@ final class AdminControllerTenantGateTest extends TestCase
         );
     }
 
+    public function testTenantStaffidcardCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/staffidcard/tenantStaffidcardCreate',
+            ['title' => 'Isolation Test Staffidcard', 'school_name' => 'Test School', 'address' => 'Test Address'],
+            'Staffidcard created with id',
+            'admin/staffidcard/tenantStaffidcardEdit/',
+            'admin/staffidcard/tenantStaffidcardDelete/',
+            'Isolation Test Staffidcard',
+            'Staffidcard deleted.',
+            'No matching staffidcard found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantStudentidcardCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/studentidcard/tenantStudentidcardCreate',
+            ['title' => 'Isolation Test Studentidcard', 'school_name' => 'Test School', 'address' => 'Test Address'],
+            'Studentidcard created with id',
+            'admin/studentidcard/tenantStudentidcardEdit/',
+            'admin/studentidcard/tenantStudentidcardDelete/',
+            'Isolation Test Studentidcard',
+            'Studentidcard deleted.',
+            'No matching studentidcard found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
     private function curlPost(string $path, array $fields): array
     {
         $ch = curl_init(self::BASE_URL . $path);

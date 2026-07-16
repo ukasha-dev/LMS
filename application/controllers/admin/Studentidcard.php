@@ -13,6 +13,7 @@ class studentidcard extends Admin_Controller
 
         $this->load->library('media_storage');
         $this->load->library('Customlib');
+        $this->load->library('tenant_media_storage');
     }
 
     public function index()
@@ -375,5 +376,126 @@ class studentidcard extends Admin_Controller
         $data['idcard'] = $this->Student_id_card_model->idcardbyid($id);
         $this->load->view('admin/certificate/studentidcardpreview', $data);
     }
-    
+
+    // Same shape as Staffidcard: no FK, 3 upload slots, background/logo/
+    // sign_image are NOT NULL varchar(100) so a missing upload defaults to
+    // '' not null.
+    public function tenantStudentidcardCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $this->form_validation->set_rules('school_name', 'School Name', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('address', 'Address', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('title', 'Title', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/certificate/tenant_studentidcard_create', ['created' => false]);
+
+            return;
+        }
+
+        $insertData = [
+            'title'                     => $this->input->post('title'),
+            'school_name'               => $this->input->post('school_name'),
+            'school_address'            => $this->input->post('address'),
+            'header_color'              => (string) $this->input->post('header_color'),
+            'enable_admission_no'       => $this->input->post('is_active_admission_no') ? 1 : 0,
+            'enable_student_name'       => $this->input->post('is_active_student_name') ? 1 : 0,
+            'enable_class'              => $this->input->post('is_active_class') ? 1 : 0,
+            'enable_fathers_name'       => $this->input->post('is_active_father_name') ? 1 : 0,
+            'enable_mothers_name'       => $this->input->post('is_active_mother_name') ? 1 : 0,
+            'enable_address'            => $this->input->post('is_active_address') ? 1 : 0,
+            'enable_phone'              => $this->input->post('is_active_phone') ? 1 : 0,
+            'enable_dob'                => $this->input->post('is_active_dob') ? 1 : 0,
+            'enable_blood_group'        => $this->input->post('is_active_blood_group') ? 1 : 0,
+            'enable_vertical_card'      => $this->input->post('enable_vertical_card') ? 1 : 0,
+            'enable_student_barcode'    => $this->input->post('enable_student_barcode') ? 1 : 0,
+            'enable_student_rollno'     => $this->input->post('enable_student_rollno') ? 1 : 0,
+            'enable_student_house_name' => $this->input->post('enable_student_house_name') ? 1 : 0,
+            'status'                    => 1,
+            'background'                => $this->tenant_media_storage->upload('background_image', $tenantId, 'student_id_card') ?: '',
+            'logo'                      => $this->tenant_media_storage->upload('logo_img', $tenantId, 'student_id_card') ?: '',
+            'sign_image'                => $this->tenant_media_storage->upload('sign_image', $tenantId, 'student_id_card') ?: '',
+        ];
+
+        $idcardId = $this->Student_id_card_model->tenantScopedInsert('id_card', $tenantId, $insertData);
+
+        $this->load->view('admin/certificate/tenant_studentidcard_create', ['created' => true, 'id' => $idcardId]);
+    }
+
+    public function tenantStudentidcardEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $idcard = $this->Student_id_card_model->tenantScopedFind('id_card', $tenantId, (int) $id);
+        if (!$idcard) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('school_name', 'School Name', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('address', 'Address', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('title', 'Title', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/certificate/tenant_studentidcard_edit', ['updated' => false, 'idcard' => $idcard]);
+
+            return;
+        }
+
+        $updateData = [
+            'title'          => $this->input->post('title'),
+            'school_name'    => $this->input->post('school_name'),
+            'school_address' => $this->input->post('address'),
+            'header_color'   => (string) $this->input->post('header_color'),
+        ];
+
+        foreach ([['background_image', 'background'], ['logo_img', 'logo'], ['sign_image', 'sign_image']] as [$fieldName, $column]) {
+            $newFile = $this->tenant_media_storage->upload($fieldName, $tenantId, 'student_id_card');
+            if ($newFile) {
+                $this->tenant_media_storage->delete($idcard[$column]);
+                $updateData[$column] = $newFile;
+            }
+        }
+
+        $this->Student_id_card_model->tenantScopedUpdate('id_card', $tenantId, (int) $id, $updateData);
+
+        $idcard = $this->Student_id_card_model->tenantScopedFind('id_card', $tenantId, (int) $id);
+        $this->load->view('admin/certificate/tenant_studentidcard_edit', ['updated' => true, 'idcard' => $idcard]);
+    }
+
+    public function tenantStudentidcardDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $idcard  = $this->Student_id_card_model->tenantScopedFind('id_card', $tenantId, (int) $id);
+        $deleted = $this->Student_id_card_model->tenantScopedDelete('id_card', $tenantId, (int) $id);
+        if ($deleted && $idcard) {
+            $this->tenant_media_storage->delete($idcard['background']);
+            $this->tenant_media_storage->delete($idcard['logo']);
+            $this->tenant_media_storage->delete($idcard['sign_image']);
+        }
+
+        $this->load->view('admin/certificate/tenant_studentidcard_delete', ['deleted' => $deleted]);
+    }
+
 }

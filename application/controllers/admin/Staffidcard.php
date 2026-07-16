@@ -10,6 +10,7 @@ class Staffidcard extends Admin_Controller
     {
         parent::__construct();
         $this->load->library('media_storage');
+        $this->load->library('tenant_media_storage');
     }
 
     public function index()
@@ -386,6 +387,140 @@ class Staffidcard extends Admin_Controller
         } else {
             return true;
         }
+    }
+
+    // No FK -- every field is a scalar flag or one of 3 independent upload
+    // slots. background/logo/sign_image are NOT NULL varchar(100), so
+    // (unlike most other upload fields converted so far) a missing upload
+    // must default to '' not null, matching legacy's own default.
+    public function tenantStaffidcardCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $this->form_validation->set_rules('school_name', 'School Name', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('address', 'Address', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('title', 'Title', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/staffidcard/tenant_staffidcard_create', ['created' => false]);
+
+            return;
+        }
+
+        $insertData = [
+            'title'                    => $this->input->post('title'),
+            'school_name'              => $this->input->post('school_name'),
+            'school_address'           => $this->input->post('address'),
+            'header_color'             => (string) $this->input->post('header_color'),
+            'enable_staff_id'          => $this->input->post('is_active_staff_id') ? 1 : 0,
+            'enable_staff_department'  => $this->input->post('is_active_department') ? 1 : 0,
+            'enable_designation'       => $this->input->post('is_active_designation') ? 1 : 0,
+            'enable_name'              => $this->input->post('is_active_staff_name') ? 1 : 0,
+            'enable_fathers_name'      => $this->input->post('is_active_staff_father_name') ? 1 : 0,
+            'enable_mothers_name'      => $this->input->post('is_active_staff_mother_name') ? 1 : 0,
+            'enable_date_of_joining'   => $this->input->post('is_active_date_of_joining') ? 1 : 0,
+            'enable_permanent_address' => $this->input->post('is_active_staff_permanent_address') ? 1 : 0,
+            'enable_staff_dob'         => $this->input->post('is_active_staff_dob') ? 1 : 0,
+            'enable_staff_phone'       => $this->input->post('is_active_staff_phone') ? 1 : 0,
+            'enable_vertical_card'     => $this->input->post('enable_vertical_card') ? 1 : 0,
+            'enable_staff_barcode'     => $this->input->post('enable_staff_barcode') ? 1 : 0,
+            'enable_staff_role'        => 0,
+            'status'                   => 1,
+            'background'               => $this->tenant_media_storage->upload('background_image', $tenantId, 'staff_id_card') ?: '',
+            'logo'                     => $this->tenant_media_storage->upload('logo_img', $tenantId, 'staff_id_card') ?: '',
+            'sign_image'               => $this->tenant_media_storage->upload('sign_image', $tenantId, 'staff_id_card') ?: '',
+        ];
+
+        $idcardId = $this->Staffidcard_model->tenantScopedInsert('staff_id_card', $tenantId, $insertData);
+
+        $this->load->view('admin/staffidcard/tenant_staffidcard_create', ['created' => true, 'id' => $idcardId, 'images' => $insertData]);
+    }
+
+    public function tenantStaffidcardEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $idcard = $this->Staffidcard_model->tenantScopedFind('staff_id_card', $tenantId, (int) $id);
+        if (!$idcard) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('school_name', 'School Name', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('address', 'Address', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('title', 'Title', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/staffidcard/tenant_staffidcard_edit', ['updated' => false, 'idcard' => $idcard]);
+
+            return;
+        }
+
+        $updateData = [
+            'title'                    => $this->input->post('title'),
+            'school_name'              => $this->input->post('school_name'),
+            'school_address'           => $this->input->post('address'),
+            'header_color'             => (string) $this->input->post('header_color'),
+            'enable_staff_id'          => $this->input->post('is_active_staff_id') ? 1 : 0,
+            'enable_staff_department'  => $this->input->post('is_active_department') ? 1 : 0,
+            'enable_designation'       => $this->input->post('is_active_designation') ? 1 : 0,
+            'enable_name'              => $this->input->post('is_active_staff_name') ? 1 : 0,
+            'enable_fathers_name'      => $this->input->post('is_active_staff_father_name') ? 1 : 0,
+            'enable_mothers_name'      => $this->input->post('is_active_staff_mother_name') ? 1 : 0,
+            'enable_date_of_joining'   => $this->input->post('is_active_date_of_joining') ? 1 : 0,
+            'enable_permanent_address' => $this->input->post('is_active_staff_permanent_address') ? 1 : 0,
+            'enable_staff_dob'         => $this->input->post('is_active_staff_dob') ? 1 : 0,
+            'enable_staff_phone'       => $this->input->post('is_active_staff_phone') ? 1 : 0,
+            'enable_vertical_card'     => $this->input->post('enable_vertical_card') ? 1 : 0,
+            'enable_staff_barcode'     => $this->input->post('enable_staff_barcode') ? 1 : 0,
+        ];
+
+        foreach ([['background_image', 'background'], ['logo_img', 'logo'], ['sign_image', 'sign_image']] as [$fieldName, $column]) {
+            $newFile = $this->tenant_media_storage->upload($fieldName, $tenantId, 'staff_id_card');
+            if ($newFile) {
+                $this->tenant_media_storage->delete($idcard[$column]);
+                $updateData[$column] = $newFile;
+            }
+        }
+
+        $this->Staffidcard_model->tenantScopedUpdate('staff_id_card', $tenantId, (int) $id, $updateData);
+
+        $idcard = $this->Staffidcard_model->tenantScopedFind('staff_id_card', $tenantId, (int) $id);
+        $this->load->view('admin/staffidcard/tenant_staffidcard_edit', ['updated' => true, 'idcard' => $idcard]);
+    }
+
+    public function tenantStaffidcardDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $idcard  = $this->Staffidcard_model->tenantScopedFind('staff_id_card', $tenantId, (int) $id);
+        $deleted = $this->Staffidcard_model->tenantScopedDelete('staff_id_card', $tenantId, (int) $id);
+        if ($deleted && $idcard) {
+            $this->tenant_media_storage->delete($idcard['background']);
+            $this->tenant_media_storage->delete($idcard['logo']);
+            $this->tenant_media_storage->delete($idcard['sign_image']);
+        }
+
+        $this->load->view('admin/staffidcard/tenant_staffidcard_delete', ['deleted' => $deleted]);
     }
 
 }
