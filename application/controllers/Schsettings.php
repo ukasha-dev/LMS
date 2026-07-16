@@ -1062,8 +1062,110 @@ class Schsettings extends Admin_Controller
 				return FALSE;
 			}
 		}
-	
+
 		return TRUE;
 	}
-    
+
+    // Minimal, deliberately partial slice: sch_settings is a per-tenant
+    // settings singleton shared by both this controller and
+    // Onlineadmission::admissionsetting() (which still writes it via a
+    // client-blind hardcoded id=1 -- a real bug, not fixed here). Rather
+    // than port all 15+ disjoint legacy actions or every one of its ~150
+    // columns, this exposes ONE whitelisted-field update at a time, always
+    // resolving the tenant's real row id server-side (never trusting a
+    // client-posted id/sch_id the way every other legacy entry point
+    // does). session_id/lang_id/currency are the only real FK-shaped
+    // fields in the whitelist and are verified accordingly (session_id
+    // against the tenant-scoped sessions table; lang_id/currency against
+    // languages/currencies, which are global reference tables with no
+    // tenant_id column, so a plain existence check is used instead of
+    // tenantScopedFind). Every other legacy action/field on this table
+    // is left untouched, a stated decision not an oversight.
+    private $schSettingsFieldWhitelist = ['name', 'email', 'phone', 'address', 'timezone', 'date_format', 'currency_format', 'session_id', 'lang_id', 'currency'];
+
+    public function tenantSchSettingsGet()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $rows = $this->setting_model->tenantScopedList('sch_settings', $tenantId);
+        $settings = $rows[0] ?? null;
+        if (!$settings) {
+            show_404();
+
+            return;
+        }
+
+        $this->load->view('admin/schsettings/tenant_schsettings_get', ['settings' => $settings]);
+    }
+
+    public function tenantSchSettingsUpdate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $this->form_validation->set_rules('field', 'Field', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('value', 'Value', 'trim|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/schsettings/tenant_schsettings_update', ['updated' => false]);
+
+            return;
+        }
+
+        $field = $this->input->post('field');
+        if (!in_array($field, $this->schSettingsFieldWhitelist, true)) {
+            show_404();
+
+            return;
+        }
+
+        $rows = $this->setting_model->tenantScopedList('sch_settings', $tenantId);
+        $settings = $rows[0] ?? null;
+        if (!$settings) {
+            show_404();
+
+            return;
+        }
+
+        $value = $this->input->post('value');
+
+        if ($field === 'session_id') {
+            $value = (int) $value;
+            if (!$this->setting_model->tenantScopedFind('sessions', $tenantId, $value)) {
+                show_404();
+
+                return;
+            }
+        } elseif ($field === 'lang_id') {
+            $value = (int) $value;
+            if (!$this->db->where('id', $value)->get('languages')->row()) {
+                show_404();
+
+                return;
+            }
+        } elseif ($field === 'currency') {
+            $value = (int) $value;
+            if (!$this->db->where('id', $value)->get('currencies')->row()) {
+                show_404();
+
+                return;
+            }
+        }
+
+        $this->setting_model->tenantScopedUpdate('sch_settings', $tenantId, (int) $settings['id'], [$field => $value]);
+
+        $this->load->view('admin/schsettings/tenant_schsettings_update', ['updated' => true, 'field' => $field]);
+    }
+
 }

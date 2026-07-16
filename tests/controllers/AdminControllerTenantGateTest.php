@@ -2971,6 +2971,70 @@ final class AdminControllerTenantGateTest extends TestCase
         }
     }
 
+    public function testTenantSchSettingsGetUpdateIsolatedAndRejectsForgedSessionId(): void
+    {
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        $pdo = new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', '');
+        $originalTimezone = (string) $pdo->query("SELECT timezone FROM sch_settings WHERE tenant_id = 25")->fetchColumn();
+
+        try {
+            [$getStatus, $getBody] = $this->curlGet('schsettings/tenantSchSettingsGet');
+            $this->assertSame(200, $getStatus);
+            $this->assertStringContainsString('School Settings', $getBody);
+
+            [$updateStatus, $updateBody] = $this->curlPost('schsettings/tenantSchSettingsUpdate', [
+                'field' => 'timezone', 'value' => 'Isolation-Test-TZ',
+            ]);
+            $this->assertSame(200, $updateStatus);
+            $this->assertStringContainsString('Setting timezone updated.', $updateBody);
+
+            $stored = $pdo->query("SELECT timezone FROM sch_settings WHERE tenant_id = 25")->fetchColumn();
+            $this->assertSame('Isolation-Test-TZ', $stored);
+
+            // Non-whitelisted field must be rejected.
+            [$badFieldStatus, ] = $this->curlPost('schsettings/tenantSchSettingsUpdate', [
+                'field' => 'tenant_id', 'value' => '999',
+            ]);
+            $this->assertSame(404, $badFieldStatus, 'a non-whitelisted field must be rejected');
+
+            $otherCookieJar = tempnam(sys_get_temp_dir(), 'admgate_test_other_');
+            $realCookieJar = $this->cookieJar;
+            $this->cookieJar = $otherCookieJar;
+
+            try {
+                [$otherLoginStatus, ] = $this->curlPostPilotLoginAs(26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!');
+                $this->assertContains($otherLoginStatus, [200, 302, 303, 307]);
+
+                // Tenant 26 has no sch_settings row provisioned -- must 404, never see tenant 25's row.
+                [$crossGetStatus, $crossGetBody] = $this->curlGet('schsettings/tenantSchSettingsGet');
+                $this->assertSame(404, $crossGetStatus);
+                $this->assertStringNotContainsString('Al-Fareed', $crossGetBody);
+
+                [$crossUpdateStatus, ] = $this->curlPost('schsettings/tenantSchSettingsUpdate', [
+                    'field' => 'timezone', 'value' => 'Forged-TZ',
+                ]);
+                $this->assertSame(404, $crossUpdateStatus, 'tenant 26 must not be able to write into tenant 25\'s settings row');
+            } finally {
+                $this->cookieJar = $realCookieJar;
+                @unlink($otherCookieJar);
+            }
+
+            $stillStored = $pdo->query("SELECT timezone FROM sch_settings WHERE tenant_id = 25")->fetchColumn();
+            $this->assertSame('Isolation-Test-TZ', $stillStored, 'tenant 25\'s row must be unaffected by tenant 26\'s attempted write');
+
+            // Real FK verification: tenant 25 referencing tenant 26's real session must 404.
+            $otherTenantSessionId = (int) $pdo->query('SELECT id FROM sessions WHERE tenant_id = 26 LIMIT 1')->fetchColumn();
+            [$forgeSessionStatus, ] = $this->curlPost('schsettings/tenantSchSettingsUpdate', [
+                'field' => 'session_id', 'value' => $otherTenantSessionId,
+            ]);
+            $this->assertSame(404, $forgeSessionStatus, 'referencing another tenant session_id must be rejected');
+        } finally {
+            $pdo->exec("UPDATE sch_settings SET timezone = " . $pdo->quote($originalTimezone) . " WHERE tenant_id = 25");
+        }
+    }
+
     public function testTenantBookCreateEditDeleteAreIsolatedPerTenant(): void
     {
         $this->verifyTenantCrudCrossTenantIsolation(
