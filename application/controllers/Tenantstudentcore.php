@@ -11,11 +11,15 @@ if (!defined('BASEPATH')) {
 // "Core" here means exactly what the current school_saas schema and this
 // pass's scope cover: demographic basics + class/section/session placement,
 // with every posted foreign id verified to belong to this tenant before use.
-// Deliberately DEFERRED (not attempted here): file uploads (photo/parent
-// pics/documents), parent account + student login creation, sibling
-// linking (a real cross-tenant IDOR in the legacy code -- students.parent_id
-// inheritance via a client-supplied sibling_id -- needs its own dedicated
-// design pass), and transport/fee-discount assignment.
+// Sibling linking is supported here specifically BECAUSE it was a known
+// cross-tenant IDOR in the legacy code (Student_model::get($sibling_id) is
+// unfiltered, so a crafted sibling_id from another tenant would silently
+// inherit that tenant's parent_id) -- rather than leave the gap open, the
+// safe version is offered here: sibling_id is verified via tenantScopedFind
+// before its parent_id is ever read.
+// Deliberately still DEFERRED (not attempted here): file uploads (photo/
+// parent pics/documents), parent account + student login creation, and
+// transport/fee-discount assignment.
 class Tenantstudentcore extends Admin_Controller
 {
 
@@ -67,6 +71,7 @@ class Tenantstudentcore extends Admin_Controller
         $categoryId         = $this->input->post('category_id');
         $schoolHouseId      = $this->input->post('school_house_id');
         $hostelRoomId       = $this->input->post('hostel_room_id');
+        $siblingId          = $this->input->post('sibling_id');
 
         if (!$this->verifyFk($tenantId, 'classes', $classId)
             || !$this->verifyFk($tenantId, 'sections', $sectionId)
@@ -74,13 +79,14 @@ class Tenantstudentcore extends Admin_Controller
             || !$this->verifyFk($tenantId, 'categories', $categoryId)
             || !$this->verifyFk($tenantId, 'school_houses', $schoolHouseId)
             || !$this->verifyFk($tenantId, 'hostel_rooms', $hostelRoomId)
+            || !$this->verifyFk($tenantId, 'students', $siblingId)
         ) {
             show_404();
 
             return;
         }
 
-        $studentId = $this->student_model->tenantScopedInsert('students', $tenantId, [
+        $insertData = [
             'firstname'       => $this->input->post('firstname'),
             'middlename'      => $this->input->post('middlename'),
             'lastname'        => $this->input->post('lastname'),
@@ -91,7 +97,14 @@ class Tenantstudentcore extends Admin_Controller
             'school_house_id' => $schoolHouseId ?: null,
             'hostel_room_id'  => $hostelRoomId ?: null,
             'is_active'       => 'yes',
-        ]);
+        ];
+
+        if ($siblingId) {
+            $sibling = $this->student_model->tenantScopedFind('students', $tenantId, (int) $siblingId);
+            $insertData['parent_id'] = (int) $sibling['parent_id'];
+        }
+
+        $studentId = $this->student_model->tenantScopedInsert('students', $tenantId, $insertData);
 
         $this->student_model->tenantScopedInsert('student_session', $tenantId, [
             'student_id' => $studentId,
@@ -137,19 +150,21 @@ class Tenantstudentcore extends Admin_Controller
         $categoryId    = $this->input->post('category_id');
         $schoolHouseId = $this->input->post('school_house_id');
         $hostelRoomId  = $this->input->post('hostel_room_id');
+        $siblingId     = $this->input->post('sibling_id');
 
         if (!$this->verifyFk($tenantId, 'classes', $classId)
             || !$this->verifyFk($tenantId, 'sections', $sectionId)
             || !$this->verifyFk($tenantId, 'categories', $categoryId)
             || !$this->verifyFk($tenantId, 'school_houses', $schoolHouseId)
             || !$this->verifyFk($tenantId, 'hostel_rooms', $hostelRoomId)
+            || !$this->verifyFk($tenantId, 'students', $siblingId)
         ) {
             show_404();
 
             return;
         }
 
-        $this->student_model->tenantScopedUpdate('students', $tenantId, (int) $id, [
+        $updateData = [
             'firstname'       => $this->input->post('firstname'),
             'middlename'      => $this->input->post('middlename'),
             'lastname'        => $this->input->post('lastname'),
@@ -158,7 +173,14 @@ class Tenantstudentcore extends Admin_Controller
             'category_id'     => $categoryId ?: null,
             'school_house_id' => $schoolHouseId ?: null,
             'hostel_room_id'  => $hostelRoomId ?: null,
-        ]);
+        ];
+
+        if ($siblingId) {
+            $sibling = $this->student_model->tenantScopedFind('students', $tenantId, (int) $siblingId);
+            $updateData['parent_id'] = (int) $sibling['parent_id'];
+        }
+
+        $this->student_model->tenantScopedUpdate('students', $tenantId, (int) $id, $updateData);
 
         $existingSession = $this->db->where('student_id', (int) $id)->where('tenant_id', $tenantId)
             ->order_by('id', 'DESC')->limit(1)->get('student_session')->row_array();

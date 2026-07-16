@@ -1500,78 +1500,91 @@ final class AdminControllerTenantGateTest extends TestCase
         [$loginStatus, ] = $this->curlPostPilotLogin();
         $this->assertContains($loginStatus, [200, 302, 303, 307]);
 
-        // Tenant 25 creates a student using its own class/section/session/category -- must succeed.
-        [$createStatus, $createBody] = $this->curlPost('tenantstudentcore/tenantStudentCoreCreate', [
-            'firstname' => 'Isolation Test Student',
-            'admission_no' => 'ISOTEST001',
-            'class_id' => 1,
-            'section_id' => 1,
-            'session_id' => 1,
-            'category_id' => 1,
-        ]);
-        $this->assertSame(200, $createStatus);
-        $this->assertMatchesRegularExpression('/Student created with id (\d+)/', $createBody);
-        preg_match('/Student created with id (\d+)/', $createBody, $matches);
-        $studentId = (int) $matches[1];
-
-        [$listStatus, $listBody] = $this->curlGet('student/tenantStudentList');
-        $this->assertSame(200, $listStatus);
-        $this->assertStringContainsString('Isolation Test Student', $listBody);
-        $this->assertStringContainsString('ISOTEST001', $listBody);
-
-        [$editGetStatus, $editGetBody] = $this->curlGet('tenantstudentcore/tenantStudentCoreEdit/' . $studentId);
-        $this->assertSame(200, $editGetStatus);
-        $this->assertStringContainsString('Isolation Test Student', $editGetBody);
-
-        [$editPostStatus, $editPostBody] = $this->curlPost('tenantstudentcore/tenantStudentCoreEdit/' . $studentId, [
-            'firstname' => 'Isolation Test Student',
-            'lastname' => 'Updated Lastname',
-            'class_id' => 1,
-            'section_id' => 1,
-        ]);
-        $this->assertSame(200, $editPostStatus);
-        $this->assertStringContainsString('Updated Lastname', $editPostBody);
-
-        $otherCookieJar = tempnam(sys_get_temp_dir(), 'admgate_test_other_');
-        $realCookieJar = $this->cookieJar;
-        $this->cookieJar = $otherCookieJar;
-
         try {
-            [$otherLoginStatus, ] = $this->curlPostPilotLoginAs(26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!');
-            $this->assertContains($otherLoginStatus, [200, 302, 303, 307]);
-
-            // Forgery: tenant 26 creates a student using tenant 25's class_id -- must 404 the whole request.
-            [$forgeStatus, ] = $this->curlPost('tenantstudentcore/tenantStudentCoreCreate', [
-                'firstname' => 'Forged Student',
-                'admission_no' => 'FORGED001',
+            // Tenant 25 creates a student using its own class/section/session/category -- must succeed.
+            [$createStatus, $createBody] = $this->curlPost('tenantstudentcore/tenantStudentCoreCreate', [
+                'firstname' => 'Isolation Test Student',
+                'admission_no' => 'ISOTEST001',
                 'class_id' => 1,
-                'section_id' => 9,
-                'session_id' => 16,
+                'section_id' => 1,
+                'session_id' => 1,
+                'category_id' => 1,
             ]);
-            $this->assertSame(404, $forgeStatus, 'referencing another tenant class_id must be rejected');
+            $this->assertSame(200, $createStatus);
+            $this->assertMatchesRegularExpression('/Student created with id (\d+)/', $createBody);
+            preg_match('/Student created with id (\d+)/', $createBody, $matches);
+            $studentId = (int) $matches[1];
 
-            [$crossEditStatus, ] = $this->curlGet('tenantstudentcore/tenantStudentCoreEdit/' . $studentId);
-            $this->assertSame(404, $crossEditStatus, 'the other tenant must not be able to view this row by id');
+            [$listStatus, $listBody] = $this->curlGet('student/tenantStudentList');
+            $this->assertSame(200, $listStatus);
+            $this->assertStringContainsString('Isolation Test Student', $listBody);
+            $this->assertStringContainsString('ISOTEST001', $listBody);
 
-            [$crossDeleteStatus, ] = $this->curlGet('tenantstudentcore/tenantStudentCoreDelete/' . $studentId);
-            $this->assertSame(404, $crossDeleteStatus, 'the other tenant must not be able to delete this row by id');
+            [$editGetStatus, $editGetBody] = $this->curlGet('tenantstudentcore/tenantStudentCoreEdit/' . $studentId);
+            $this->assertSame(200, $editGetStatus);
+            $this->assertStringContainsString('Isolation Test Student', $editGetBody);
+
+            [$editPostStatus, $editPostBody] = $this->curlPost('tenantstudentcore/tenantStudentCoreEdit/' . $studentId, [
+                'firstname' => 'Isolation Test Student',
+                'lastname' => 'Updated Lastname',
+                'class_id' => 1,
+                'section_id' => 1,
+            ]);
+            $this->assertSame(200, $editPostStatus);
+            $this->assertStringContainsString('Updated Lastname', $editPostBody);
+
+            $otherCookieJar = tempnam(sys_get_temp_dir(), 'admgate_test_other_');
+            $realCookieJar = $this->cookieJar;
+            $this->cookieJar = $otherCookieJar;
+
+            try {
+                [$otherLoginStatus, ] = $this->curlPostPilotLoginAs(26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!');
+                $this->assertContains($otherLoginStatus, [200, 302, 303, 307]);
+
+                // Forgery: tenant 26 creates a student using tenant 25's class_id -- must 404 the whole request.
+                [$forgeStatus, ] = $this->curlPost('tenantstudentcore/tenantStudentCoreCreate', [
+                    'firstname' => 'Forged Student',
+                    'admission_no' => 'FORGED001',
+                    'class_id' => 1,
+                    'section_id' => 9,
+                    'session_id' => 16,
+                ]);
+                $this->assertSame(404, $forgeStatus, 'referencing another tenant class_id must be rejected');
+
+                [$crossEditStatus, ] = $this->curlGet('tenantstudentcore/tenantStudentCoreEdit/' . $studentId);
+                $this->assertSame(404, $crossEditStatus, 'the other tenant must not be able to view this row by id');
+
+                [$crossDeleteStatus, ] = $this->curlGet('tenantstudentcore/tenantStudentCoreDelete/' . $studentId);
+                $this->assertSame(404, $crossDeleteStatus, 'the other tenant must not be able to delete this row by id');
+            } finally {
+                $this->cookieJar = $realCookieJar;
+                @unlink($otherCookieJar);
+            }
+
+            // Tenant 25's row must be untouched by the forgery/cross-tenant delete attempts.
+            [$finalEditStatus, $finalEditBody] = $this->curlGet('tenantstudentcore/tenantStudentCoreEdit/' . $studentId);
+            $this->assertSame(200, $finalEditStatus);
+            $this->assertStringContainsString('Updated Lastname', $finalEditBody);
+
+            // This freshly-created test student has no login row, so tenant 25 can delete it via this route.
+            [$deleteStatus, $deleteBody] = $this->curlGet('tenantstudentcore/tenantStudentCoreDelete/' . $studentId);
+            $this->assertSame(200, $deleteStatus);
+            $this->assertStringContainsString('Student deleted.', $deleteBody);
+
+            [$goneStatus, ] = $this->curlGet('tenantstudentcore/tenantStudentCoreEdit/' . $studentId);
+            $this->assertSame(404, $goneStatus);
         } finally {
-            $this->cookieJar = $realCookieJar;
-            @unlink($otherCookieJar);
+            // Cleanup by admission_no pattern rather than a tracked id -- must
+            // run regardless of which assertion above failed, otherwise a
+            // mid-test failure leaves a real stray row in production-shaped
+            // data (same class of bug found and fixed in the Staffcore test).
+            $pdo = new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', '');
+            $strayIds = $pdo->query("SELECT id FROM students WHERE admission_no IN ('ISOTEST001', 'FORGED001')")->fetchAll(PDO::FETCH_COLUMN);
+            foreach ($strayIds as $strayId) {
+                $pdo->exec('DELETE FROM student_session WHERE student_id = ' . (int) $strayId);
+                $pdo->exec('DELETE FROM students WHERE id = ' . (int) $strayId);
+            }
         }
-
-        // Tenant 25's row must be untouched by the forgery/cross-tenant delete attempts.
-        [$finalEditStatus, $finalEditBody] = $this->curlGet('tenantstudentcore/tenantStudentCoreEdit/' . $studentId);
-        $this->assertSame(200, $finalEditStatus);
-        $this->assertStringContainsString('Updated Lastname', $finalEditBody);
-
-        // This freshly-created test student has no login row, so tenant 25 can delete it via this route.
-        [$deleteStatus, $deleteBody] = $this->curlGet('tenantstudentcore/tenantStudentCoreDelete/' . $studentId);
-        $this->assertSame(200, $deleteStatus);
-        $this->assertStringContainsString('Student deleted.', $deleteBody);
-
-        [$goneStatus, ] = $this->curlGet('tenantstudentcore/tenantStudentCoreEdit/' . $studentId);
-        $this->assertSame(404, $goneStatus);
     }
 
     public function testTenantStudentCoreDeleteRefusesRealStudentsWithAnExistingLogin(): void
@@ -1594,8 +1607,6 @@ final class AdminControllerTenantGateTest extends TestCase
     {
         [$loginStatus, ] = $this->curlPostPilotLogin();
         $this->assertContains($loginStatus, [200, 302, 303, 307]);
-
-        $tenant26StaffId = null;
 
         try {
             // Tenant 25 creates a staff member using its own department/designation/role -- must succeed.
@@ -1654,8 +1665,6 @@ final class AdminControllerTenantGateTest extends TestCase
                 ]);
                 $this->assertSame(200, $reuseStatus);
                 $this->assertMatchesRegularExpression('/Staff created with id (\d+)/', $reuseBody, 'reusing another tenant\'s employee_id/email must be allowed');
-                preg_match('/Staff created with id (\d+)/', $reuseBody, $reuseMatches);
-                $tenant26StaffId = (int) $reuseMatches[1];
 
                 // Forgery: tenant 26 references tenant 25's department id -- must 404 the whole request.
                 [$forgeStatus, ] = $this->curlPost('tenantstaffcore/tenantStaffCoreCreate', [
@@ -1688,10 +1697,19 @@ final class AdminControllerTenantGateTest extends TestCase
             [$goneStatus, ] = $this->curlGet('tenantstaffcore/tenantStaffCoreEdit/' . $staffId);
             $this->assertSame(404, $goneStatus);
         } finally {
-            if ($tenant26StaffId) {
-                $pdo = new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', '');
-                $pdo->exec('DELETE FROM staff_roles WHERE staff_id = ' . $tenant26StaffId);
-                $pdo->exec('DELETE FROM staff WHERE id = ' . $tenant26StaffId);
+            // Cleanup by employee_id pattern rather than tracked ids -- this
+            // must run regardless of which assertion above failed (or which
+            // curl call never got far enough to capture an id), otherwise a
+            // mid-test failure leaves a real stray row polluting the tenant's
+            // actual staff list. (This is exactly what happened once during
+            // this test's own development: an interrupted run left a real
+            // "Isolation Test Staff" row counted in production-shaped data
+            // until it was found and cleaned up by hand.)
+            $pdo = new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', '');
+            $strayIds = $pdo->query("SELECT id FROM staff WHERE employee_id LIKE 'ISOTEST-STAFF%'")->fetchAll(PDO::FETCH_COLUMN);
+            foreach ($strayIds as $strayId) {
+                $pdo->exec('DELETE FROM staff_roles WHERE staff_id = ' . (int) $strayId);
+                $pdo->exec('DELETE FROM staff WHERE id = ' . (int) $strayId);
             }
         }
     }
@@ -1743,6 +1761,80 @@ final class AdminControllerTenantGateTest extends TestCase
             $this->cookieJar = $realCookieJar;
             @unlink($otherCookieJar);
         }
+    }
+
+    public function testTenantStudentCoreSiblingLinkingInheritsParentIdWhenSiblingIsOwnedByTenant(): void
+    {
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        try {
+            // Real student #1 (tenant 25) has a real parent_id -- confirmed live: 2.
+            [$createStatus, $createBody] = $this->curlPost('tenantstudentcore/tenantStudentCoreCreate', [
+                'firstname' => 'Isolation Test Sibling',
+                'admission_no' => 'ISOTEST-SIBLING-001',
+                'class_id' => 1,
+                'section_id' => 1,
+                'session_id' => 1,
+                'sibling_id' => 1,
+            ]);
+            $this->assertSame(200, $createStatus);
+            $this->assertMatchesRegularExpression('/Student created with id (\d+)/', $createBody);
+            preg_match('/Student created with id (\d+)/', $createBody, $matches);
+            $studentId = (int) $matches[1];
+
+            [$editStatus, $editBody] = $this->curlGet('tenantstudentcore/tenantStudentCoreEdit/' . $studentId);
+            $this->assertSame(200, $editStatus);
+            $this->assertStringContainsString('parent_id: 2', $editBody, 'the new student must inherit sibling #1\'s real parent_id (2)');
+
+            $this->curlGet('tenantstudentcore/tenantStudentCoreDelete/' . $studentId);
+        } finally {
+            // Cleanup by admission_no pattern rather than a tracked id -- must
+            // run regardless of which assertion above failed (same class of
+            // bug found and fixed in the Staffcore/Studentcore main tests).
+            $pdo = new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', '');
+            $strayIds = $pdo->query("SELECT id FROM students WHERE admission_no = 'ISOTEST-SIBLING-001'")->fetchAll(PDO::FETCH_COLUMN);
+            foreach ($strayIds as $strayId) {
+                $pdo->exec('DELETE FROM student_session WHERE student_id = ' . (int) $strayId);
+                $pdo->exec('DELETE FROM students WHERE id = ' . (int) $strayId);
+            }
+        }
+    }
+
+    public function testTenantStudentCoreCreateRejectsSiblingIdFromAnotherTenant(): void
+    {
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        $otherCookieJar = tempnam(sys_get_temp_dir(), 'admgate_test_other_');
+        $realCookieJar = $this->cookieJar;
+        $this->cookieJar = $otherCookieJar;
+
+        try {
+            [$otherLoginStatus, ] = $this->curlPostPilotLoginAs(26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!');
+            $this->assertContains($otherLoginStatus, [200, 302, 303, 307]);
+
+            // Tenant 26 references tenant 25's real student #1 as a "sibling"
+            // -- this is the exact legacy IDOR shape (silently inheriting
+            // another tenant's parent_id via a guessable id) and must 404
+            // the whole request instead.
+            [$forgeStatus, ] = $this->curlPost('tenantstudentcore/tenantStudentCoreCreate', [
+                'firstname' => 'Forged Sibling Link',
+                'admission_no' => 'FORGED-SIBLING-001',
+                'class_id' => 8,
+                'section_id' => 9,
+                'session_id' => 16,
+                'sibling_id' => 1,
+            ]);
+            $this->assertSame(404, $forgeStatus, 'referencing another tenant\'s student as sibling_id must be rejected');
+        } finally {
+            $this->cookieJar = $realCookieJar;
+            @unlink($otherCookieJar);
+        }
+
+        $pdo = new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', '');
+        $stray = (int) $pdo->query("SELECT COUNT(*) FROM students WHERE admission_no = 'FORGED-SIBLING-001'")->fetchColumn();
+        $this->assertSame(0, $stray, 'the forged request must not have created any row at all');
     }
 
     private function curlPost(string $path, array $fields): array

@@ -19,6 +19,7 @@
     <input type="text" name="class_id" placeholder="Class Id">
     <input type="text" name="section_id" placeholder="Section Id">
     <input type="text" name="session_id" placeholder="Session Id">
+    <input type="text" name="sibling_id" placeholder="Sibling Id">
     <button type="submit">Create</button>
 </form>
 <?php endif; ?>
