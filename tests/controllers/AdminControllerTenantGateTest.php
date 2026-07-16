@@ -2175,6 +2175,66 @@ final class AdminControllerTenantGateTest extends TestCase
         }
     }
 
+    public function testTenantAdmitcardCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/admitcard/tenantAdmitcardCreate',
+            ['template' => 'default', 'heading' => 'Isolation Test Admitcard', 'title' => 'Admit Card'],
+            'Admitcard created with id',
+            'admin/admitcard/tenantAdmitcardEdit/',
+            'admin/admitcard/tenantAdmitcardDelete/',
+            'Isolation Test Admitcard',
+            'Admitcard deleted.',
+            'No matching admitcard found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantCertificateCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/certificate/tenantCertificateCreate',
+            ['certificate_name' => 'Isolation Test Certificate', 'certificate_text' => 'Test text'],
+            'Certificate created with id',
+            'admin/certificate/tenantCertificateEdit/',
+            'admin/certificate/tenantCertificateDelete/',
+            'Isolation Test Certificate',
+            'Certificate deleted.',
+            'No matching certificate found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantDispatchCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/dispatch/tenantDispatchCreate',
+            ['to_title' => 'Isolation Test Dispatch', 'ref_no' => 'REF-001', 'date' => '2026-01-22'],
+            'Dispatch created with id',
+            'admin/dispatch/tenantDispatchEdit/',
+            'admin/dispatch/tenantDispatchDelete/',
+            'Isolation Test Dispatch',
+            'Dispatch deleted.',
+            'No matching dispatch found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantReceiveCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/receive/tenantReceiveCreate',
+            ['from_title' => 'Isolation Test Receive', 'ref_no' => 'REF-002', 'date' => '2026-01-22'],
+            'Receive created with id',
+            'admin/receive/tenantReceiveEdit/',
+            'admin/receive/tenantReceiveDelete/',
+            'Isolation Test Receive',
+            'Receive deleted.',
+            'No matching receive found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
     private function curlPost(string $path, array $fields): array
     {
         $ch = curl_init(self::BASE_URL . $path);

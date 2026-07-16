@@ -11,6 +11,7 @@ class Admitcard extends Admin_Controller
     {
         parent::__construct();
         $this->load->library('media_storage');
+        $this->load->library('tenant_media_storage');
     }
 
     public function index()
@@ -418,10 +419,138 @@ class Admitcard extends Admin_Controller
 
     public function save_active_status(){
         $value=$_POST['value'];
-        $this->admitcard_model->save_active_status($value); 
+        $this->admitcard_model->save_active_status($value);
     }
 
+    // No FK at all -- every field is a scalar/flag or one of 4 independent
+    // upload slots. Delete cascades to all 4 files, matching legacy.
+    public function tenantAdmitcardCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
 
+            return;
+        }
+        $tenantId = (int) $tenantId;
 
+        $this->form_validation->set_rules('template', 'Template', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/admitcard/tenant_admitcard_create', ['created' => false]);
+
+            return;
+        }
+
+        $insertData = [
+            'template'        => $this->input->post('template'),
+            'heading'         => $this->input->post('heading'),
+            'title'           => $this->input->post('title'),
+            'exam_name'       => $this->input->post('exam_name'),
+            'school_name'     => $this->input->post('school_name'),
+            'exam_center'     => $this->input->post('exam_center'),
+            'is_name'         => $this->input->post('is_name') ? 1 : 0,
+            'is_father_name'  => $this->input->post('is_father_name') ? 1 : 0,
+            'is_mother_name'  => $this->input->post('is_mother_name') ? 1 : 0,
+            'is_dob'          => $this->input->post('is_dob') ? 1 : 0,
+            'is_admission_no' => $this->input->post('is_admission_no') ? 1 : 0,
+            'is_roll_no'      => $this->input->post('is_roll_no') ? 1 : 0,
+            'is_address'      => $this->input->post('is_address') ? 1 : 0,
+            'is_gender'       => $this->input->post('is_gender') ? 1 : 0,
+            'is_photo'        => $this->input->post('is_photo') ? 1 : 0,
+            'is_class'        => $this->input->post('is_class') ? 1 : 0,
+            'is_section'      => $this->input->post('is_section') ? 1 : 0,
+            'content_footer'  => nl2br((string) $this->input->post('content_footer')),
+            'left_logo'       => $this->tenant_media_storage->upload('left_logo', $tenantId, 'admit_card'),
+            'right_logo'      => $this->tenant_media_storage->upload('right_logo', $tenantId, 'admit_card'),
+            'sign'            => $this->tenant_media_storage->upload('sign', $tenantId, 'admit_card'),
+            'background_img'  => $this->tenant_media_storage->upload('background_img', $tenantId, 'admit_card'),
+        ];
+
+        $admitcardId = $this->admitcard_model->tenantScopedInsert('template_admitcards', $tenantId, $insertData);
+
+        $this->load->view('admin/admitcard/tenant_admitcard_create', ['created' => true, 'id' => $admitcardId, 'images' => $insertData]);
+    }
+
+    public function tenantAdmitcardEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $admitcard = $this->admitcard_model->tenantScopedFind('template_admitcards', $tenantId, (int) $id);
+        if (!$admitcard) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('template', 'Template', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/admitcard/tenant_admitcard_edit', ['updated' => false, 'admitcard' => $admitcard]);
+
+            return;
+        }
+
+        $updateData = [
+            'template'        => $this->input->post('template'),
+            'heading'         => $this->input->post('heading'),
+            'title'           => $this->input->post('title'),
+            'exam_name'       => $this->input->post('exam_name'),
+            'school_name'     => $this->input->post('school_name'),
+            'exam_center'     => $this->input->post('exam_center'),
+            'is_name'         => $this->input->post('is_name') ? 1 : 0,
+            'is_father_name'  => $this->input->post('is_father_name') ? 1 : 0,
+            'is_mother_name'  => $this->input->post('is_mother_name') ? 1 : 0,
+            'is_dob'          => $this->input->post('is_dob') ? 1 : 0,
+            'is_admission_no' => $this->input->post('is_admission_no') ? 1 : 0,
+            'is_roll_no'      => $this->input->post('is_roll_no') ? 1 : 0,
+            'is_address'      => $this->input->post('is_address') ? 1 : 0,
+            'is_gender'       => $this->input->post('is_gender') ? 1 : 0,
+            'is_photo'        => $this->input->post('is_photo') ? 1 : 0,
+            'is_class'        => $this->input->post('is_class') ? 1 : 0,
+            'is_section'      => $this->input->post('is_section') ? 1 : 0,
+            'content_footer'  => nl2br((string) $this->input->post('content_footer')),
+        ];
+
+        foreach (['left_logo', 'right_logo', 'sign', 'background_img'] as $field) {
+            $newFile = $this->tenant_media_storage->upload($field, $tenantId, 'admit_card');
+            if ($newFile) {
+                $this->tenant_media_storage->delete($admitcard[$field]);
+                $updateData[$field] = $newFile;
+            }
+        }
+
+        $this->admitcard_model->tenantScopedUpdate('template_admitcards', $tenantId, (int) $id, $updateData);
+
+        $admitcard = $this->admitcard_model->tenantScopedFind('template_admitcards', $tenantId, (int) $id);
+        $this->load->view('admin/admitcard/tenant_admitcard_edit', ['updated' => true, 'admitcard' => $admitcard]);
+    }
+
+    public function tenantAdmitcardDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $admitcard = $this->admitcard_model->tenantScopedFind('template_admitcards', $tenantId, (int) $id);
+        $deleted   = $this->admitcard_model->tenantScopedDelete('template_admitcards', $tenantId, (int) $id);
+        if ($deleted && $admitcard) {
+            foreach (['left_logo', 'right_logo', 'sign', 'background_img'] as $field) {
+                $this->tenant_media_storage->delete($admitcard[$field]);
+            }
+        }
+
+        $this->load->view('admin/admitcard/tenant_admitcard_delete', ['deleted' => $deleted]);
+    }
 
 }

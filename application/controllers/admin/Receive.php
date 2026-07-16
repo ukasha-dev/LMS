@@ -12,6 +12,7 @@ class Receive extends Admin_Controller
         parent::__construct();
         $this->load->library('form_validation');
         $this->load->library('media_storage');
+        $this->load->library('tenant_media_storage');
         $this->load->model("dispatch_model");
     }
 
@@ -154,9 +155,109 @@ class Receive extends Admin_Controller
     
     public function download($id)
     {
-        $dispatch_list = $this->dispatch_model->dis_rec_data($id, 'receive');       
+        $dispatch_list = $this->dispatch_model->dis_rec_data($id, 'receive');
         $this->media_storage->filedownload($dispatch_list['image'], "./uploads/front_office/dispatch_receive");
-        
+
+    }
+
+    // Mirrors Dispatch::tenant*() exactly -- same shared table/model, only
+    // the `type` stamp differs.
+    public function tenantReceiveCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $this->form_validation->set_rules('from_title', 'From Title', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/frontoffice/tenant_receive_create', ['created' => false]);
+
+            return;
+        }
+
+        $receiveId = $this->dispatch_model->tenantScopedInsert('dispatch_receive', $tenantId, [
+            'reference_no' => (string) $this->input->post('ref_no'),
+            'to_title'     => (string) $this->input->post('to_title'),
+            'address'      => (string) $this->input->post('address'),
+            'note'         => (string) $this->input->post('note'),
+            'from_title'   => $this->input->post('from_title'),
+            'date'         => $this->input->post('date'),
+            'type'         => 'receive',
+            'image'        => $this->tenant_media_storage->upload('photo', $tenantId, 'dispatch_receive'),
+        ]);
+
+        $this->load->view('admin/frontoffice/tenant_receive_create', ['created' => true, 'id' => $receiveId]);
+    }
+
+    public function tenantReceiveEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $receive = $this->dispatch_model->tenantScopedFind('dispatch_receive', $tenantId, (int) $id);
+        if (!$receive) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('from_title', 'From Title', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/frontoffice/tenant_receive_edit', ['updated' => false, 'receive' => $receive]);
+
+            return;
+        }
+
+        $updateData = [
+            'reference_no' => (string) $this->input->post('ref_no'),
+            'to_title'     => (string) $this->input->post('to_title'),
+            'address'      => (string) $this->input->post('address'),
+            'note'         => (string) $this->input->post('note'),
+            'from_title'   => $this->input->post('from_title'),
+            'date'         => $this->input->post('date'),
+            'type'         => 'receive',
+        ];
+
+        $newImage = $this->tenant_media_storage->upload('photo', $tenantId, 'dispatch_receive');
+        if ($newImage) {
+            $this->tenant_media_storage->delete($receive['image']);
+            $updateData['image'] = $newImage;
+        }
+
+        $this->dispatch_model->tenantScopedUpdate('dispatch_receive', $tenantId, (int) $id, $updateData);
+
+        $receive = $this->dispatch_model->tenantScopedFind('dispatch_receive', $tenantId, (int) $id);
+        $this->load->view('admin/frontoffice/tenant_receive_edit', ['updated' => true, 'receive' => $receive]);
+    }
+
+    public function tenantReceiveDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $receive = $this->dispatch_model->tenantScopedFind('dispatch_receive', $tenantId, (int) $id);
+        $deleted = $this->dispatch_model->tenantScopedDelete('dispatch_receive', $tenantId, (int) $id);
+        if ($deleted && $receive) {
+            $this->tenant_media_storage->delete($receive['image']);
+        }
+
+        $this->load->view('admin/frontoffice/tenant_receive_delete', ['deleted' => $deleted]);
     }
 
 }

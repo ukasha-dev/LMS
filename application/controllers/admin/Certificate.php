@@ -12,6 +12,7 @@ class Certificate extends Admin_Controller
 
         $this->load->library('media_storage');
         $this->load->library('Customlib');
+        $this->load->library('tenant_media_storage');
         $this->load->model('certificate_model');
     }
 
@@ -256,5 +257,128 @@ class Certificate extends Admin_Controller
 
     }
 
+    // No FK -- created_for is a hardcoded type flag (2), not a real
+    // reference. Single upload slot (background_image).
+    public function tenantCertificateCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $this->form_validation->set_rules('certificate_name', 'Certificate Name', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('certificate_text', 'Certificate Text', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/certificate/tenant_certificate_create', ['created' => false]);
+
+            return;
+        }
+
+        $enableImg = $this->input->post('is_active_student_img') == 1 ? 1 : 0;
+        $imgHeight = $enableImg ? (int) $this->input->post('image_height') : 0;
+
+        $certificateId = $this->certificate_model->tenantScopedInsert('certificates', $tenantId, [
+            'certificate_name'     => $this->input->post('certificate_name'),
+            'certificate_text'     => $this->input->post('certificate_text'),
+            'left_header'          => (string) $this->input->post('left_header'),
+            'center_header'        => (string) $this->input->post('center_header'),
+            'right_header'         => (string) $this->input->post('right_header'),
+            'left_footer'          => (string) $this->input->post('left_footer'),
+            'right_footer'         => (string) $this->input->post('right_footer'),
+            'center_footer'        => (string) $this->input->post('center_footer'),
+            'created_for'          => 2,
+            'status'               => 1,
+            'background_image'     => $this->tenant_media_storage->upload('background_image', $tenantId, 'certificate'),
+            'header_height'        => (string) $this->input->post('header_height'),
+            'content_height'       => (string) $this->input->post('content_height'),
+            'footer_height'        => (string) $this->input->post('footer_height'),
+            'content_width'        => (string) $this->input->post('content_width'),
+            'enable_student_image' => $enableImg,
+            'enable_image_height'  => $imgHeight,
+        ]);
+
+        $this->load->view('admin/certificate/tenant_certificate_create', ['created' => true, 'id' => $certificateId]);
+    }
+
+    public function tenantCertificateEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $certificate = $this->certificate_model->tenantScopedFind('certificates', $tenantId, (int) $id);
+        if (!$certificate) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('certificate_name', 'Certificate Name', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('certificate_text', 'Certificate Text', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/certificate/tenant_certificate_edit', ['updated' => false, 'certificate' => $certificate]);
+
+            return;
+        }
+
+        $enableImg = $this->input->post('is_active_student_img') == 1 ? 1 : 0;
+        $imgHeight = $enableImg ? (int) $this->input->post('image_height') : 0;
+
+        $updateData = [
+            'certificate_name'     => $this->input->post('certificate_name'),
+            'certificate_text'     => $this->input->post('certificate_text'),
+            'left_header'          => (string) $this->input->post('left_header'),
+            'center_header'        => (string) $this->input->post('center_header'),
+            'right_header'         => (string) $this->input->post('right_header'),
+            'left_footer'          => (string) $this->input->post('left_footer'),
+            'right_footer'         => (string) $this->input->post('right_footer'),
+            'center_footer'        => (string) $this->input->post('center_footer'),
+            'header_height'        => (string) $this->input->post('header_height'),
+            'content_height'       => (string) $this->input->post('content_height'),
+            'footer_height'        => (string) $this->input->post('footer_height'),
+            'content_width'        => (string) $this->input->post('content_width'),
+            'enable_student_image' => $enableImg,
+            'enable_image_height'  => $imgHeight,
+        ];
+
+        $newImage = $this->tenant_media_storage->upload('background_image', $tenantId, 'certificate');
+        if ($newImage) {
+            $this->tenant_media_storage->delete($certificate['background_image']);
+            $updateData['background_image'] = $newImage;
+        }
+
+        $this->certificate_model->tenantScopedUpdate('certificates', $tenantId, (int) $id, $updateData);
+
+        $certificate = $this->certificate_model->tenantScopedFind('certificates', $tenantId, (int) $id);
+        $this->load->view('admin/certificate/tenant_certificate_edit', ['updated' => true, 'certificate' => $certificate]);
+    }
+
+    public function tenantCertificateDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $certificate = $this->certificate_model->tenantScopedFind('certificates', $tenantId, (int) $id);
+        $deleted     = $this->certificate_model->tenantScopedDelete('certificates', $tenantId, (int) $id);
+        if ($deleted && $certificate) {
+            $this->tenant_media_storage->delete($certificate['background_image']);
+        }
+
+        $this->load->view('admin/certificate/tenant_certificate_delete', ['deleted' => $deleted]);
+    }
+
 }
-?>
