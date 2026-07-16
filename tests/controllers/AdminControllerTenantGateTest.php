@@ -2498,6 +2498,57 @@ final class AdminControllerTenantGateTest extends TestCase
         );
     }
 
+    public function testTenantEnquiryCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/enquiry/tenantEnquiryCreate',
+            [
+                'name' => 'Isolation Test Enquiry', 'contact' => '1234567890', 'reference' => 'REF01',
+                'source' => 'walk-in', 'date' => '2026-01-01', 'follow_up_date' => '2026-01-08',
+                'description' => 'x',
+            ],
+            'Enquiry created with id',
+            'admin/enquiry/tenantEnquiryEdit/',
+            'admin/enquiry/tenantEnquiryDelete/',
+            'Isolation Test Enquiry',
+            'Enquiry deleted.',
+            'No matching enquiry found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantEnquiryCreateRejectsForgedAssignedAndClassId(): void
+    {
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        $otherCookieJar = tempnam(sys_get_temp_dir(), 'admgate_test_other_');
+        $realCookieJar = $this->cookieJar;
+        $this->cookieJar = $otherCookieJar;
+
+        try {
+            [$otherLoginStatus, ] = $this->curlPostPilotLoginAs(26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!');
+            $this->assertContains($otherLoginStatus, [200, 302, 303, 307]);
+
+            $baseFields = [
+                'name' => 'Forged Enquiry', 'contact' => '1234567890', 'reference' => 'REF01',
+                'source' => 'walk-in', 'date' => '2026-01-01', 'follow_up_date' => '2026-01-08',
+                'description' => 'x',
+            ];
+
+            // Tenant 26 references tenant 25's real staff #1 as assigned -- must 404.
+            [$forgeAssignedStatus, ] = $this->curlPost('admin/enquiry/tenantEnquiryCreate', $baseFields + ['assigned' => 1]);
+            $this->assertSame(404, $forgeAssignedStatus, 'referencing another tenant staff id as assigned must be rejected');
+
+            // Tenant 26 references tenant 25's real class #1 -- must 404.
+            [$forgeClassStatus, ] = $this->curlPost('admin/enquiry/tenantEnquiryCreate', $baseFields + ['class_id' => 1]);
+            $this->assertSame(404, $forgeClassStatus, 'referencing another tenant class_id must be rejected');
+        } finally {
+            $this->cookieJar = $realCookieJar;
+            @unlink($otherCookieJar);
+        }
+    }
+
     public function testTenantBookCreateEditDeleteAreIsolatedPerTenant(): void
     {
         $this->verifyTenantCrudCrossTenantIsolation(

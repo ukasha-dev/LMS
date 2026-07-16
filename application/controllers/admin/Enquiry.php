@@ -297,4 +297,161 @@ class Enquiry extends Admin_Controller
         echo json_encode($array);
     }
 
+    // Base entity only (enquiry table). follow_up (own table, own FK to
+    // enquiry.id + followup_by->staff) is a separate joined feature, same
+    // base/satellite split used elsewhere this migration. assigned/class_id
+    // are nullable FKs verified only when posted; created_by is
+    // server-derived from the logged-in staff's own session id (still
+    // verified defensively, matching the Timeline.php precedent).
+    public function tenantEnquiryCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $this->form_validation->set_rules('name', 'Name', 'trim|required|xss_clean|max_length[100]');
+        $this->form_validation->set_rules('contact', 'Contact', 'trim|required|xss_clean|max_length[20]');
+        $this->form_validation->set_rules('reference', 'Reference', 'trim|required|xss_clean|max_length[20]');
+        $this->form_validation->set_rules('description', 'Description', 'trim|required|xss_clean|max_length[500]');
+        $this->form_validation->set_rules('source', 'Source', 'trim|required|xss_clean|max_length[50]');
+        $this->form_validation->set_rules('date', 'Date', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('follow_up_date', 'Follow Up Date', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/enquiry/tenant_enquiry_create', ['created' => false]);
+
+            return;
+        }
+
+        $createdBy = (int) $this->customlib->getStaffID();
+        if (!$createdBy || !$this->enquiry_model->tenantScopedFind('staff', $tenantId, $createdBy)) {
+            show_404();
+
+            return;
+        }
+
+        $assigned = $this->input->post('assigned');
+        if ($assigned !== null && $assigned !== '') {
+            $assigned = (int) $assigned;
+            if (!$this->enquiry_model->tenantScopedFind('staff', $tenantId, $assigned)) {
+                show_404();
+
+                return;
+            }
+        } else {
+            $assigned = null;
+        }
+
+        $classId = $this->input->post('class_id');
+        if ($classId !== null && $classId !== '') {
+            $classId = (int) $classId;
+            if (!$this->enquiry_model->tenantScopedFind('classes', $tenantId, $classId)) {
+                show_404();
+
+                return;
+            }
+        } else {
+            $classId = null;
+        }
+
+        $id = $this->enquiry_model->tenantScopedInsert('enquiry', $tenantId, [
+            'name'           => $this->input->post('name'),
+            'contact'        => $this->input->post('contact'),
+            'address'        => (string) $this->input->post('address'),
+            'reference'      => $this->input->post('reference'),
+            'date'           => $this->input->post('date'),
+            'description'    => $this->input->post('description'),
+            'follow_up_date' => $this->input->post('follow_up_date'),
+            'note'           => (string) $this->input->post('note'),
+            'source'         => $this->input->post('source'),
+            'email'          => $this->input->post('email') ?: null,
+            'assigned'       => $assigned,
+            'class_id'       => $classId,
+            'no_of_child'    => (string) $this->input->post('no_of_child'),
+            'status'         => 'active',
+            'created_by'     => $createdBy,
+        ]);
+
+        $this->load->view('admin/enquiry/tenant_enquiry_create', ['created' => true, 'id' => $id]);
+    }
+
+    public function tenantEnquiryEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $enquiry = $this->enquiry_model->tenantScopedFind('enquiry', $tenantId, (int) $id);
+        if (!$enquiry) {
+            show_404();
+
+            return;
+        }
+
+        if ($this->input->method() === 'post') {
+            $this->form_validation->set_rules('name', 'Name', 'trim|required|xss_clean|max_length[100]');
+            $this->form_validation->set_rules('contact', 'Contact', 'trim|required|xss_clean|max_length[20]');
+            $this->form_validation->set_rules('description', 'Description', 'trim|required|xss_clean|max_length[500]');
+
+            if ($this->form_validation->run() !== false) {
+                $assigned = $this->input->post('assigned');
+                if ($assigned !== null && $assigned !== '') {
+                    $assigned = (int) $assigned;
+                    if (!$this->enquiry_model->tenantScopedFind('staff', $tenantId, $assigned)) {
+                        show_404();
+
+                        return;
+                    }
+                } else {
+                    $assigned = null;
+                }
+
+                $classId = $this->input->post('class_id');
+                if ($classId !== null && $classId !== '') {
+                    $classId = (int) $classId;
+                    if (!$this->enquiry_model->tenantScopedFind('classes', $tenantId, $classId)) {
+                        show_404();
+
+                        return;
+                    }
+                } else {
+                    $classId = null;
+                }
+
+                $this->enquiry_model->tenantScopedUpdate('enquiry', $tenantId, (int) $id, [
+                    'name'        => $this->input->post('name'),
+                    'contact'     => $this->input->post('contact'),
+                    'description' => $this->input->post('description'),
+                    'assigned'    => $assigned,
+                    'class_id'    => $classId,
+                ]);
+                $enquiry = $this->enquiry_model->tenantScopedFind('enquiry', $tenantId, (int) $id);
+            }
+        }
+
+        $this->load->view('admin/enquiry/tenant_enquiry_edit', ['enquiry' => $enquiry]);
+    }
+
+    public function tenantEnquiryDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $deleted = $this->enquiry_model->tenantScopedDelete('enquiry', $tenantId, (int) $id);
+        $this->load->view('admin/enquiry/tenant_enquiry_delete', ['deleted' => $deleted]);
+    }
+
 }
