@@ -4,9 +4,12 @@
 <body>
 <?php if ($created): ?>
 <p>Student created with id <?php echo (int) $id; ?>.</p>
+<?php if (!empty($image)): ?>
+<p>image: <?php echo htmlspecialchars((string) $image); ?></p>
+<?php endif; ?>
 <?php else: ?>
 <h1>Create Student</h1>
-<form method="post">
+<form method="post" enctype="multipart/form-data">
     <input type="text" name="firstname" placeholder="First Name">
     <input type="text" name="middlename" placeholder="Middle Name">
     <input type="text" name="lastname" placeholder="Last Name">
@@ -20,6 +23,7 @@
     <input type="text" name="section_id" placeholder="Section Id">
     <input type="text" name="session_id" placeholder="Session Id">
     <input type="text" name="sibling_id" placeholder="Sibling Id">
+    <input type="file" name="photo">
     <button type="submit">Create</button>
 </form>
 <?php endif; ?>

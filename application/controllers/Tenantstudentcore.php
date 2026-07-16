@@ -17,9 +17,17 @@ if (!defined('BASEPATH')) {
 // inherit that tenant's parent_id) -- rather than leave the gap open, the
 // safe version is offered here: sibling_id is verified via tenantScopedFind
 // before its parent_id is ever read.
-// Deliberately still DEFERRED (not attempted here): file uploads (photo/
-// parent pics/documents), parent account + student login creation, and
-// transport/fee-discount assignment.
+// Photo upload uses Tenant_media_storage (application/libraries/
+// Tenant_media_storage.php) instead of the legacy Media_storage: the legacy
+// library's storage path comes from a session field that PilotLogin.php
+// sets to '' for every tenant session, so it silently falls back to the
+// SAME shared uploads/student_images/ directory every branch and every
+// other tenant also falls back to -- zero isolation. Tenant_media_storage
+// keeps every tenant's files under their own uploads/tenant_uploads/
+// tenant_<id>/ directory instead.
+// Deliberately still DEFERRED (not attempted here): parent pics/documents,
+// parent account + student login creation, and transport/fee-discount
+// assignment.
 class Tenantstudentcore extends Admin_Controller
 {
 
@@ -27,6 +35,7 @@ class Tenantstudentcore extends Admin_Controller
     {
         parent::__construct();
         $this->load->model(array('student_model', 'class_model', 'section_model', 'category_model'));
+        $this->load->library('tenant_media_storage');
     }
 
     private function tenantId()
@@ -97,6 +106,7 @@ class Tenantstudentcore extends Admin_Controller
             'school_house_id' => $schoolHouseId ?: null,
             'hostel_room_id'  => $hostelRoomId ?: null,
             'is_active'       => 'yes',
+            'image'           => $this->tenant_media_storage->upload('photo', $tenantId, 'student_images'),
         ];
 
         if ($siblingId) {
@@ -113,7 +123,7 @@ class Tenantstudentcore extends Admin_Controller
             'session_id' => $sessionId,
         ]);
 
-        $this->load->view('student/tenant_student_core_create', ['created' => true, 'id' => $studentId]);
+        $this->load->view('student/tenant_student_core_create', ['created' => true, 'id' => $studentId, 'image' => $insertData['image']]);
     }
 
     public function tenantStudentCoreEdit($id)
@@ -174,6 +184,12 @@ class Tenantstudentcore extends Admin_Controller
             'school_house_id' => $schoolHouseId ?: null,
             'hostel_room_id'  => $hostelRoomId ?: null,
         ];
+
+        $newImage = $this->tenant_media_storage->upload('photo', $tenantId, 'student_images');
+        if ($newImage) {
+            $this->tenant_media_storage->delete($student['image']);
+            $updateData['image'] = $newImage;
+        }
 
         if ($siblingId) {
             $sibling = $this->student_model->tenantScopedFind('students', $tenantId, (int) $siblingId);
@@ -243,6 +259,10 @@ class Tenantstudentcore extends Admin_Controller
 
         $this->db->where('student_id', (int) $id)->where('tenant_id', $tenantId)->delete('student_session');
         $deleted = $this->student_model->tenantScopedDelete('students', $tenantId, (int) $id);
+
+        if ($deleted) {
+            $this->tenant_media_storage->delete($student['image']);
+        }
 
         $this->load->view('student/tenant_student_core_delete', ['deleted' => $deleted]);
     }

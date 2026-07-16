@@ -1892,6 +1892,54 @@ final class AdminControllerTenantGateTest extends TestCase
         }
     }
 
+    public function testTenantStudentCorePhotoUploadIsStoredUnderATenantScopedDirectory(): void
+    {
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        // A minimal, real, valid 1x1 PNG.
+        $pngBytes = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=');
+        $tmpFile = tempnam(sys_get_temp_dir(), 'admgate_photo_') . '.png';
+        file_put_contents($tmpFile, $pngBytes);
+
+        $studentId = null;
+
+        try {
+            [$createStatus, $createBody] = $this->curlPostMultipart('tenantstudentcore/tenantStudentCoreCreate', [
+                'firstname' => 'Isolation Test Photo Student',
+                'admission_no' => 'ISOTEST-PHOTO-001',
+                'class_id' => 1,
+                'section_id' => 1,
+                'session_id' => 1,
+            ], 'photo', $tmpFile);
+            $this->assertSame(200, $createStatus);
+            $this->assertMatchesRegularExpression('/Student created with id (\d+)/', $createBody);
+            preg_match('/Student created with id (\d+)/', $createBody, $matches);
+            $studentId = (int) $matches[1];
+
+            $this->assertMatchesRegularExpression('#image: tenant_25/student_images/\S+!test-photo\.png#', $createBody);
+            preg_match('#image: (tenant_25/student_images/\S+!test-photo\.png)#', $createBody, $imageMatches);
+            $storedPath = $imageMatches[1];
+
+            $absolutePath = __DIR__ . '/../../uploads/tenant_uploads/' . $storedPath;
+            $this->assertFileExists($absolutePath, 'the uploaded file must actually exist on disk under the tenant-scoped directory');
+
+            // Deleting the student (no login, so this route can remove it)
+            // must also remove the physical file -- no orphaned upload left behind.
+            [$deleteStatus, ] = $this->curlGet('tenantstudentcore/tenantStudentCoreDelete/' . $studentId);
+            $this->assertSame(200, $deleteStatus);
+            $this->assertFileDoesNotExist($absolutePath, 'delete must clean up the physical file, not just the DB row');
+            $studentId = null;
+        } finally {
+            @unlink($tmpFile);
+            if ($studentId) {
+                $pdo = new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', '');
+                $pdo->exec('DELETE FROM student_session WHERE student_id = ' . (int) $studentId);
+                $pdo->exec('DELETE FROM students WHERE id = ' . (int) $studentId);
+            }
+        }
+    }
+
     private function curlPost(string $path, array $fields): array
     {
         $ch = curl_init(self::BASE_URL . $path);
@@ -1902,6 +1950,26 @@ final class AdminControllerTenantGateTest extends TestCase
             CURLOPT_FOLLOWLOCATION => false,
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => http_build_query($fields),
+        ]);
+        $body = curl_exec($ch);
+        $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        return [$status, $body];
+    }
+
+    // Multipart variant for endpoints that accept a file upload alongside
+    // regular fields. $filePath must be a real, readable local file.
+    private function curlPostMultipart(string $path, array $fields, string $fileFieldName, string $filePath): array
+    {
+        $ch = curl_init(self::BASE_URL . $path);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_COOKIEJAR => $this->cookieJar,
+            CURLOPT_COOKIEFILE => $this->cookieJar,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => $fields + [$fileFieldName => new CURLFile($filePath, 'image/png', 'test-photo.png')],
         ]);
         $body = curl_exec($ch);
         $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
