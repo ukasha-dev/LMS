@@ -1982,6 +1982,98 @@ final class AdminControllerTenantGateTest extends TestCase
         }
     }
 
+    public function testTenantVisitorCreateEditDeleteRejectsForgedForeignKeysAndIsolatesPerTenant(): void
+    {
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        $pngBytes = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=');
+        $tmpFile = tempnam(sys_get_temp_dir(), 'admgate_visitorphoto_') . '.png';
+        file_put_contents($tmpFile, $pngBytes);
+
+        $visitorId = null;
+
+        try {
+            // Tenant 25 creates a visitor meeting its own staff #1 -- must succeed.
+            [$createStatus, $createBody] = $this->curlPostMultipart('admin/visitors/tenantVisitorCreate', [
+                'purpose' => 'Isolation Test Visit',
+                'name' => 'Isolation Test Visitor',
+                'contact' => '1234567890',
+                'id_proof' => 'ID-001',
+                'no_of_people' => '1',
+                'date' => '2026-01-20',
+                'in_time' => '10:00',
+                'out_time' => '11:00',
+                'note' => 'test',
+                'meeting_with' => 'staff',
+                'staff_id' => '1',
+            ], 'photo', $tmpFile);
+            $this->assertSame(200, $createStatus);
+            $this->assertMatchesRegularExpression('/Visitor created with id (\d+)/', $createBody);
+            preg_match('/Visitor created with id (\d+)/', $createBody, $matches);
+            $visitorId = (int) $matches[1];
+
+            [$editGetStatus, $editGetBody] = $this->curlGet('admin/visitors/tenantVisitorEdit/' . $visitorId);
+            $this->assertSame(200, $editGetStatus);
+            $this->assertStringContainsString('Isolation Test Visitor', $editGetBody);
+            $this->assertMatchesRegularExpression('#image: tenant_25/visitors/#', $editGetBody);
+
+            $otherCookieJar = tempnam(sys_get_temp_dir(), 'admgate_test_other_');
+            $realCookieJar = $this->cookieJar;
+            $this->cookieJar = $otherCookieJar;
+
+            try {
+                [$otherLoginStatus, ] = $this->curlPostPilotLoginAs(26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!');
+                $this->assertContains($otherLoginStatus, [200, 302, 303, 307]);
+
+                // Forgery 1: tenant 26 references tenant 25's staff #1 as the meeting-with staff.
+                [$forgeStaffStatus, ] = $this->curlPost('admin/visitors/tenantVisitorCreate', [
+                    'purpose' => 'Forged Visit',
+                    'name' => 'Forged Visitor',
+                    'date' => '2026-01-20',
+                    'meeting_with' => 'staff',
+                    'staff_id' => '1',
+                ]);
+                $this->assertSame(404, $forgeStaffStatus, 'referencing another tenant staff_id must be rejected');
+
+                // Forgery 2: tenant 26 references tenant 25's real student_session #312.
+                [$forgeSessionStatus, ] = $this->curlPost('admin/visitors/tenantVisitorCreate', [
+                    'purpose' => 'Forged Visit',
+                    'name' => 'Forged Visitor',
+                    'date' => '2026-01-20',
+                    'meeting_with' => 'student',
+                    'student_session_id' => '312',
+                ]);
+                $this->assertSame(404, $forgeSessionStatus, 'referencing another tenant student_session_id must be rejected');
+
+                [$crossEditStatus, ] = $this->curlGet('admin/visitors/tenantVisitorEdit/' . $visitorId);
+                $this->assertSame(404, $crossEditStatus, 'the other tenant must not be able to view this row by id');
+
+                [$crossDeleteStatus, ] = $this->curlGet('admin/visitors/tenantVisitorDelete/' . $visitorId);
+                $this->assertSame(404, $crossDeleteStatus, 'the other tenant must not be able to delete this row by id');
+            } finally {
+                $this->cookieJar = $realCookieJar;
+                @unlink($otherCookieJar);
+            }
+
+            // Tenant 25's row must be untouched by the forgery/cross-tenant attempts.
+            [$finalEditStatus, $finalEditBody] = $this->curlGet('admin/visitors/tenantVisitorEdit/' . $visitorId);
+            $this->assertSame(200, $finalEditStatus);
+            $this->assertStringContainsString('Isolation Test Visitor', $finalEditBody);
+
+            [$deleteStatus, $deleteBody] = $this->curlGet('admin/visitors/tenantVisitorDelete/' . $visitorId);
+            $this->assertSame(200, $deleteStatus);
+            $this->assertStringContainsString('Visitor deleted.', $deleteBody);
+            $visitorId = null;
+        } finally {
+            @unlink($tmpFile);
+            if ($visitorId) {
+                $pdo = new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', '');
+                $pdo->exec('DELETE FROM visitors_book WHERE id = ' . (int) $visitorId);
+            }
+        }
+    }
+
     private function curlPost(string $path, array $fields): array
     {
         $ch = curl_init(self::BASE_URL . $path);

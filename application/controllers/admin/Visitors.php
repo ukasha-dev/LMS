@@ -12,6 +12,7 @@ class Visitors extends Admin_Controller
         parent::__construct();
         $this->load->library('form_validation');
         $this->load->library('media_storage');
+        $this->load->library('tenant_media_storage');
         $this->config->load('front_office');
         $this->meeting_with = $this->config->item('meeting_with');
     }
@@ -305,6 +306,157 @@ class Visitors extends Admin_Controller
         $this->load->view('layout/header');
         $this->load->view('admin/frontoffice/staffvisitorview', $data);
         $this->load->view('layout/footer');
+    }
+
+    // The legacy add()/edit() post class_id/class_section_id only to drive
+    // an ajax student lookup -- the actually-stored FK is student_session_id
+    // alone, so that's the only per-meeting-with FK verified here. `purpose`
+    // is stored as free text in the legacy flow too (no FK id, no join
+    // anywhere in Visitors_model), so it's accepted as-is, matching real
+    // legacy behavior rather than inventing a stricter rule the app itself
+    // doesn't enforce.
+    public function tenantVisitorCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $this->form_validation->set_rules('purpose', 'Purpose', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('name', 'Name', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('date', 'Date', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('meeting_with', 'Meeting With', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/frontoffice/tenant_visitor_create', ['created' => false]);
+
+            return;
+        }
+
+        $meetingWith      = $this->input->post('meeting_with');
+        $staffId          = $meetingWith === 'staff' ? (int) $this->input->post('staff_id') : null;
+        $studentSessionId = $meetingWith === 'student' ? (int) $this->input->post('student_session_id') : null;
+
+        if (($staffId && !$this->visitors_model->tenantScopedFind('staff', $tenantId, $staffId))
+            || ($studentSessionId && !$this->visitors_model->tenantScopedFind('student_session', $tenantId, $studentSessionId))
+        ) {
+            show_404();
+
+            return;
+        }
+
+        $visitorId = $this->visitors_model->tenantScopedInsert('visitors_book', $tenantId, [
+            'purpose'            => $this->input->post('purpose'),
+            'name'               => $this->input->post('name'),
+            'contact'            => (string) $this->input->post('contact'),
+            'id_proof'           => (string) $this->input->post('id_proof'),
+            'no_of_people'       => (int) $this->input->post('no_of_people'),
+            'date'               => $this->input->post('date'),
+            'in_time'            => (string) $this->input->post('in_time'),
+            'out_time'           => (string) $this->input->post('out_time'),
+            'note'               => (string) $this->input->post('note'),
+            'meeting_with'       => $meetingWith,
+            'staff_id'           => $staffId,
+            'student_session_id' => $studentSessionId,
+            'image'              => $this->tenant_media_storage->upload('photo', $tenantId, 'visitors'),
+        ]);
+
+        $this->load->view('admin/frontoffice/tenant_visitor_create', ['created' => true, 'id' => $visitorId]);
+    }
+
+    public function tenantVisitorEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $visitor = $this->visitors_model->tenantScopedFind('visitors_book', $tenantId, (int) $id);
+        if (!$visitor) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('purpose', 'Purpose', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('name', 'Name', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('date', 'Date', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('meeting_with', 'Meeting With', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/frontoffice/tenant_visitor_edit', ['updated' => false, 'visitor' => $visitor]);
+
+            return;
+        }
+
+        $meetingWith      = $this->input->post('meeting_with');
+        $staffId          = $meetingWith === 'staff' ? (int) $this->input->post('staff_id') : null;
+        $studentSessionId = $meetingWith === 'student' ? (int) $this->input->post('student_session_id') : null;
+
+        if (($staffId && !$this->visitors_model->tenantScopedFind('staff', $tenantId, $staffId))
+            || ($studentSessionId && !$this->visitors_model->tenantScopedFind('student_session', $tenantId, $studentSessionId))
+        ) {
+            show_404();
+
+            return;
+        }
+
+        $updateData = [
+            'purpose'            => $this->input->post('purpose'),
+            'name'               => $this->input->post('name'),
+            'contact'            => (string) $this->input->post('contact'),
+            'id_proof'           => (string) $this->input->post('id_proof'),
+            'no_of_people'       => (int) $this->input->post('no_of_people'),
+            'date'               => $this->input->post('date'),
+            'in_time'            => (string) $this->input->post('in_time'),
+            'out_time'           => (string) $this->input->post('out_time'),
+            'note'               => (string) $this->input->post('note'),
+            'meeting_with'       => $meetingWith,
+            'staff_id'           => $staffId,
+            'student_session_id' => $studentSessionId,
+        ];
+
+        $newImage = $this->tenant_media_storage->upload('photo', $tenantId, 'visitors');
+        if ($newImage) {
+            $this->tenant_media_storage->delete($visitor['image']);
+            $updateData['image'] = $newImage;
+        }
+
+        $this->visitors_model->tenantScopedUpdate('visitors_book', $tenantId, (int) $id, $updateData);
+
+        $visitor = $this->visitors_model->tenantScopedFind('visitors_book', $tenantId, (int) $id);
+        $this->load->view('admin/frontoffice/tenant_visitor_edit', ['updated' => true, 'visitor' => $visitor]);
+    }
+
+    public function tenantVisitorDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $visitor = $this->visitors_model->tenantScopedFind('visitors_book', $tenantId, (int) $id);
+        if (!$visitor) {
+            show_404();
+
+            return;
+        }
+
+        $deleted = $this->visitors_model->tenantScopedDelete('visitors_book', $tenantId, (int) $id);
+        if ($deleted) {
+            $this->tenant_media_storage->delete($visitor['image']);
+        }
+
+        $this->load->view('admin/frontoffice/tenant_visitor_delete', ['deleted' => $deleted]);
     }
 
 }
