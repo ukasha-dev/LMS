@@ -2074,6 +2074,56 @@ final class AdminControllerTenantGateTest extends TestCase
         }
     }
 
+    public function testTenantComplaintCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/complaint/tenantComplaintCreate',
+            ['name' => 'Isolation Test Complainant', 'date' => '2026-01-21', 'complaint_type' => 'Other', 'source' => 'Phone'],
+            'Complaint created with id',
+            'admin/complaint/tenantComplaintEdit/',
+            'admin/complaint/tenantComplaintDelete/',
+            'Isolation Test Complainant',
+            'Complaint deleted.',
+            'No matching complaint found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantComplaintPhotoUploadIsStoredUnderATenantScopedDirectory(): void
+    {
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        $pngBytes = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=');
+        $tmpFile = tempnam(sys_get_temp_dir(), 'admgate_complaintphoto_') . '.png';
+        file_put_contents($tmpFile, $pngBytes);
+
+        $complaintId = null;
+
+        try {
+            [$createStatus, $createBody] = $this->curlPostMultipart('admin/complaint/tenantComplaintCreate', [
+                'name' => 'Isolation Test Photo Complainant',
+                'date' => '2026-01-21',
+            ], 'photo', $tmpFile);
+            $this->assertSame(200, $createStatus);
+            $this->assertMatchesRegularExpression('/Complaint created with id (\d+)/', $createBody);
+            preg_match('/Complaint created with id (\d+)/', $createBody, $matches);
+            $complaintId = (int) $matches[1];
+
+            $this->assertMatchesRegularExpression('#tenant_25/complaints/\S+!test-photo\.png#', $createBody);
+
+            [$deleteStatus, ] = $this->curlGet('admin/complaint/tenantComplaintDelete/' . $complaintId);
+            $this->assertSame(200, $deleteStatus);
+            $complaintId = null;
+        } finally {
+            @unlink($tmpFile);
+            if ($complaintId) {
+                $pdo = new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', '');
+                $pdo->exec('DELETE FROM complaint WHERE id = ' . (int) $complaintId);
+            }
+        }
+    }
+
     private function curlPost(string $path, array $fields): array
     {
         $ch = curl_init(self::BASE_URL . $path);

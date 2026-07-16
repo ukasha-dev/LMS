@@ -12,6 +12,7 @@ class Complaint extends Admin_Controller
         parent::__construct();
         $this->load->library('form_validation');
         $this->load->library('media_storage');
+        $this->load->library('tenant_media_storage');
         $this->load->model("complaint_Model");
     }
 
@@ -179,6 +180,119 @@ class Complaint extends Admin_Controller
         }
         return true;
 
+    }
+
+    // No FK anywhere in this entity: complaint_type/source/assigned are all
+    // free text in the legacy model too (complaint_type/source are used
+    // only to populate dropdowns, never joined or stored as an id) -- so
+    // the only tenant-safety work here is scoping the row itself and the
+    // upload, same pattern as Feediscount/Contenttype's base-entity CRUD.
+    public function tenantComplaintCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $this->form_validation->set_rules('name', 'Name', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('date', 'Date', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/frontoffice/tenant_complaint_create', ['created' => false]);
+
+            return;
+        }
+
+        $insertImage = $this->tenant_media_storage->upload('photo', $tenantId, 'complaints');
+
+        $complaintId = $this->complaint_Model->tenantScopedInsert('complaint', $tenantId, [
+            'complaint_type' => (string) $this->input->post('complaint_type'),
+            'source'         => (string) $this->input->post('source'),
+            'name'           => $this->input->post('name'),
+            'contact'        => (string) $this->input->post('contact'),
+            'email'          => (string) $this->input->post('email'),
+            'date'           => $this->input->post('date'),
+            'description'    => (string) $this->input->post('description'),
+            'action_taken'   => (string) $this->input->post('action_taken'),
+            'assigned'       => (string) $this->input->post('assigned'),
+            'note'           => (string) $this->input->post('note'),
+            'image'          => $insertImage,
+        ]);
+
+        $this->load->view('admin/frontoffice/tenant_complaint_create', ['created' => true, 'id' => $complaintId, 'image' => $insertImage]);
+    }
+
+    public function tenantComplaintEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $complaint = $this->complaint_Model->tenantScopedFind('complaint', $tenantId, (int) $id);
+        if (!$complaint) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('name', 'Name', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('date', 'Date', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/frontoffice/tenant_complaint_edit', ['updated' => false, 'complaint' => $complaint]);
+
+            return;
+        }
+
+        $updateData = [
+            'complaint_type' => (string) $this->input->post('complaint_type'),
+            'source'         => (string) $this->input->post('source'),
+            'name'           => $this->input->post('name'),
+            'contact'        => (string) $this->input->post('contact'),
+            'email'          => (string) $this->input->post('email'),
+            'date'           => $this->input->post('date'),
+            'description'    => (string) $this->input->post('description'),
+            'action_taken'   => (string) $this->input->post('action_taken'),
+            'assigned'       => (string) $this->input->post('assigned'),
+            'note'           => (string) $this->input->post('note'),
+        ];
+
+        $newImage = $this->tenant_media_storage->upload('photo', $tenantId, 'complaints');
+        if ($newImage) {
+            $this->tenant_media_storage->delete($complaint['image']);
+            $updateData['image'] = $newImage;
+        }
+
+        $this->complaint_Model->tenantScopedUpdate('complaint', $tenantId, (int) $id, $updateData);
+
+        $complaint = $this->complaint_Model->tenantScopedFind('complaint', $tenantId, (int) $id);
+        $this->load->view('admin/frontoffice/tenant_complaint_edit', ['updated' => true, 'complaint' => $complaint]);
+    }
+
+    public function tenantComplaintDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $complaint = $this->complaint_Model->tenantScopedFind('complaint', $tenantId, (int) $id);
+        $deleted   = $this->complaint_Model->tenantScopedDelete('complaint', $tenantId, (int) $id);
+        if ($deleted && $complaint) {
+            $this->tenant_media_storage->delete($complaint['image']);
+        }
+
+        $this->load->view('admin/frontoffice/tenant_complaint_delete', ['deleted' => $deleted]);
     }
 
 }
