@@ -11,6 +11,8 @@ class Syllabus extends Admin_Controller
     {
         parent::__construct();
         $this->load->library('media_storage');
+        $this->load->library('tenant_media_storage');
+        $this->load->model('lessonplan_model');
         $this->sch_current_session = $this->setting_model->getCurrentSession();
         $this->staff_id            = $this->customlib->getStaffID();
         $this->sch_setting_detail  = $this->setting_model->getSetting();
@@ -382,10 +384,143 @@ class Syllabus extends Admin_Controller
     }
     
     public function deletemessage()
-    {   
-        $fourm_id = $_POST['fourm_id'];  
+    {
+        $fourm_id = $_POST['fourm_id'];
         $this->syllabus_model->deletemessage($fourm_id);
-       
+
+    }
+
+    // Base entity only (subject_syllabus). lesson_plan_forum (staff/
+    // student discussion thread) is a separate joined feature, out of
+    // scope. created_by is server-derived from the logged-in staff's own
+    // session id; the other 3 FKs (topic_id, session_id, created_for) are
+    // client-supplied and verified via tenantScopedFind.
+    public function tenantSyllabusCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $this->form_validation->set_rules('topic_id', 'Topic', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('date', 'Date', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('time_from', 'Time From', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('time_to', 'Time To', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('created_for', 'Created For', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/syllabus/tenant_syllabus_create', ['created' => false]);
+
+            return;
+        }
+
+        $topicId = (int) $this->input->post('topic_id');
+        if (!$this->lessonplan_model->tenantScopedFind('topic', $tenantId, $topicId)) {
+            show_404();
+
+            return;
+        }
+
+        $sessionId = $this->input->post('session_id');
+        if ($sessionId && !$this->lessonplan_model->tenantScopedFind('sessions', $tenantId, (int) $sessionId)) {
+            show_404();
+
+            return;
+        }
+
+        $createdFor = (int) $this->input->post('created_for');
+        if (!$this->lessonplan_model->tenantScopedFind('staff', $tenantId, $createdFor)) {
+            show_404();
+
+            return;
+        }
+
+        $createdBy = (int) $this->customlib->getStaffID();
+
+        $id = $this->lessonplan_model->tenantScopedInsert('subject_syllabus', $tenantId, [
+            'topic_id'                => $topicId,
+            'session_id'              => $sessionId ?: null,
+            'date'                    => $this->input->post('date'),
+            'time_from'               => $this->input->post('time_from'),
+            'time_to'                 => $this->input->post('time_to'),
+            'presentation'            => (string) $this->input->post('presentation'),
+            'sub_topic'               => (string) $this->input->post('sub_topic'),
+            'teaching_method'         => (string) $this->input->post('teaching_method'),
+            'general_objectives'      => (string) $this->input->post('general_objectives'),
+            'previous_knowledge'      => (string) $this->input->post('previous_knowledge'),
+            'comprehensive_questions' => (string) $this->input->post('comprehensive_questions'),
+            'lacture_youtube_url'     => (string) $this->input->post('lacture_youtube_url'),
+            'attachment'              => $this->tenant_media_storage->upload('file', $tenantId, 'syllabus_attachment') ?: '',
+            'lacture_video'           => $this->tenant_media_storage->upload('lacture_video', $tenantId, 'syllabus_lecture_video') ?: '',
+            'status'                  => 0,
+            'created_by'              => $createdBy,
+            'created_for'             => $createdFor,
+        ]);
+
+        $this->load->view('admin/syllabus/tenant_syllabus_create', ['created' => true, 'id' => $id]);
+    }
+
+    public function tenantSyllabusEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $syllabus = $this->lessonplan_model->tenantScopedFind('subject_syllabus', $tenantId, (int) $id);
+        if (!$syllabus) {
+            show_404();
+
+            return;
+        }
+
+        if ($this->input->method() === 'post') {
+            $this->form_validation->set_rules('date', 'Date', 'trim|required|xss_clean');
+            $this->form_validation->set_rules('time_from', 'Time From', 'trim|required|xss_clean');
+            $this->form_validation->set_rules('time_to', 'Time To', 'trim|required|xss_clean');
+
+            if ($this->form_validation->run() !== false) {
+                $this->lessonplan_model->tenantScopedUpdate('subject_syllabus', $tenantId, (int) $id, [
+                    'date'         => $this->input->post('date'),
+                    'time_from'    => $this->input->post('time_from'),
+                    'time_to'      => $this->input->post('time_to'),
+                    'presentation' => (string) $this->input->post('presentation'),
+                ]);
+                $syllabus = $this->lessonplan_model->tenantScopedFind('subject_syllabus', $tenantId, (int) $id);
+            }
+        }
+
+        $this->load->view('admin/syllabus/tenant_syllabus_edit', ['syllabus' => $syllabus]);
+    }
+
+    public function tenantSyllabusDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $syllabus = $this->lessonplan_model->tenantScopedFind('subject_syllabus', $tenantId, (int) $id);
+        $deleted  = $this->lessonplan_model->tenantScopedDelete('subject_syllabus', $tenantId, (int) $id);
+        if ($deleted && $syllabus) {
+            if (!empty($syllabus['attachment'])) {
+                $this->tenant_media_storage->delete($syllabus['attachment']);
+            }
+            if (!empty($syllabus['lacture_video'])) {
+                $this->tenant_media_storage->delete($syllabus['lacture_video']);
+            }
+        }
+
+        $this->load->view('admin/syllabus/tenant_syllabus_delete', ['deleted' => $deleted]);
     }
 
 }

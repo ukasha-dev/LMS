@@ -139,6 +139,7 @@ class Admin_Controller extends MY_Controller
                 'gallery' => ['tenantgallerycreate', 'tenantgalleryedit', 'tenantgallerydelete'],
                 'enquiry' => ['tenantenquirycreate', 'tenantenquiryedit', 'tenantenquirydelete'],
                 'approve_leave' => ['tenantapproveleavecreate', 'tenantapproveleaveedit', 'tenantapproveleavedelete'],
+                'syllabus' => ['tenantsyllabuscreate', 'tenantsyllabusedit', 'tenantsyllabusdelete'],
             ];
             if (!isset($allowedTenantRoutes[$activeController]) || !in_array($activeMethod, $allowedTenantRoutes[$activeController], true)) {
                 show_404();

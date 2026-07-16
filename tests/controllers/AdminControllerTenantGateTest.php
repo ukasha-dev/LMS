@@ -2594,6 +2594,91 @@ final class AdminControllerTenantGateTest extends TestCase
         }
     }
 
+    private function createSyllabusTopicFixture(int $tenantId, int $sessionId): int
+    {
+        $pdo = new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', '');
+        $pdo->exec("INSERT INTO subject_group_subjects (tenant_id) VALUES ($tenantId)");
+        $subjectGroupSubjectId = (int) $pdo->lastInsertId();
+        $pdo->exec("INSERT INTO subject_group_class_sections (tenant_id) VALUES ($tenantId)");
+        $subjectGroupClassSectionsId = (int) $pdo->lastInsertId();
+        $pdo->exec("INSERT INTO lesson (tenant_id, session_id, subject_group_subject_id, subject_group_class_sections_id, name) VALUES ($tenantId, $sessionId, $subjectGroupSubjectId, $subjectGroupClassSectionsId, 'Fixture Lesson')");
+        $lessonId = (int) $pdo->lastInsertId();
+        $pdo->exec("INSERT INTO topic (tenant_id, session_id, lesson_id, name, status) VALUES ($tenantId, $sessionId, $lessonId, 'Fixture Topic', 0)");
+
+        return (int) $pdo->lastInsertId();
+    }
+
+    private function cleanupSyllabusTopicFixture(int $topicId): void
+    {
+        $pdo = new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', '');
+        $lessonId = (int) $pdo->query("SELECT lesson_id FROM topic WHERE id = $topicId")->fetchColumn();
+        $lesson = $pdo->query("SELECT subject_group_subject_id, subject_group_class_sections_id FROM lesson WHERE id = $lessonId")->fetch(PDO::FETCH_ASSOC);
+        $pdo->exec("DELETE FROM topic WHERE id = $topicId");
+        $pdo->exec("DELETE FROM lesson WHERE id = $lessonId");
+        if ($lesson) {
+            $pdo->exec("DELETE FROM subject_group_subjects WHERE id = " . (int) $lesson['subject_group_subject_id']);
+            $pdo->exec("DELETE FROM subject_group_class_sections WHERE id = " . (int) $lesson['subject_group_class_sections_id']);
+        }
+    }
+
+    public function testTenantSyllabusCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $topicId = $this->createSyllabusTopicFixture(25, 1);
+
+        try {
+            $this->verifyTenantCrudCrossTenantIsolation(
+                'admin/syllabus/tenantSyllabusCreate',
+                [
+                    'topic_id' => $topicId, 'session_id' => 1, 'created_for' => 1,
+                    'date' => '2026-01-01', 'time_from' => '09:00', 'time_to' => '10:00',
+                    'presentation' => 'Isolation Test Syllabus Presentation',
+                ],
+                'Syllabus created with id',
+                'admin/syllabus/tenantSyllabusEdit/',
+                'admin/syllabus/tenantSyllabusDelete/',
+                'Isolation Test Syllabus Presentation',
+                'Syllabus deleted.',
+                'No matching syllabus found for this tenant.',
+                26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+            );
+        } finally {
+            $this->cleanupSyllabusTopicFixture($topicId);
+        }
+    }
+
+    public function testTenantSyllabusCreateRejectsForgedTopicIdAndCreatedFor(): void
+    {
+        $topicId = $this->createSyllabusTopicFixture(25, 1);
+
+        try {
+            [$loginStatus, ] = $this->curlPostPilotLogin();
+            $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+            $otherCookieJar = tempnam(sys_get_temp_dir(), 'admgate_test_other_');
+            $realCookieJar = $this->cookieJar;
+            $this->cookieJar = $otherCookieJar;
+
+            try {
+                [$otherLoginStatus, ] = $this->curlPostPilotLoginAs(26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!');
+                $this->assertContains($otherLoginStatus, [200, 302, 303, 307]);
+
+                $baseFields = [
+                    'session_id' => 16, 'date' => '2026-01-01', 'time_from' => '09:00', 'time_to' => '10:00',
+                    'presentation' => 'Forged Syllabus',
+                ];
+
+                // Tenant 26 references tenant 25's real topic -- must 404.
+                [$forgeTopicStatus, ] = $this->curlPost('admin/syllabus/tenantSyllabusCreate', $baseFields + ['topic_id' => $topicId, 'created_for' => 1]);
+                $this->assertSame(404, $forgeTopicStatus, 'referencing another tenant topic_id must be rejected');
+            } finally {
+                $this->cookieJar = $realCookieJar;
+                @unlink($otherCookieJar);
+            }
+        } finally {
+            $this->cleanupSyllabusTopicFixture($topicId);
+        }
+    }
+
     public function testTenantBookCreateEditDeleteAreIsolatedPerTenant(): void
     {
         $this->verifyTenantCrudCrossTenantIsolation(
