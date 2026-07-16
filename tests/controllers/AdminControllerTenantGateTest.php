@@ -2885,6 +2885,92 @@ final class AdminControllerTenantGateTest extends TestCase
         }
     }
 
+    private function createOnlineAdmissionFixture(int $tenantId, string $firstname): int
+    {
+        $pdo = new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', '');
+        $stmt = $pdo->prepare(
+            "INSERT INTO online_admissions (reference_no, middlename, cast, route_id, blood_group, vehroute_id, guardian_is, guardian_occupation, guardian_email, father_pic, mother_pic, guardian_pic, height, weight, note, form_status, paid_status, firstname, lastname, tenant_id)
+             VALUES ('', '', '', 0, '', 0, '', '', '', '', '', '', '', '', '', 0, 0, ?, '', ?)"
+        );
+        $stmt->execute([$firstname, $tenantId]);
+
+        return (int) $pdo->lastInsertId();
+    }
+
+    public function testTenantOnlineStudentEditDeleteIsolatedAndRejectsForgedClassSectionId(): void
+    {
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        $applicationId = $this->createOnlineAdmissionFixture(25, 'Isolation Test Applicant');
+
+        try {
+            [$editStatus, $editBody] = $this->curlGet('admin/onlinestudent/tenantOnlineStudentEdit/' . $applicationId);
+            $this->assertSame(200, $editStatus);
+            $this->assertStringContainsString('Isolation Test Applicant', $editBody);
+
+            $otherCookieJar = tempnam(sys_get_temp_dir(), 'admgate_test_other_');
+            $realCookieJar = $this->cookieJar;
+            $this->cookieJar = $otherCookieJar;
+
+            try {
+                [$otherLoginStatus, ] = $this->curlPostPilotLoginAs(26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!');
+                $this->assertContains($otherLoginStatus, [200, 302, 303, 307]);
+
+                [$crossEditStatus, ] = $this->curlGet('admin/onlinestudent/tenantOnlineStudentEdit/' . $applicationId);
+                $this->assertSame(404, $crossEditStatus, 'the other tenant must not be able to view this application by id');
+
+                [$crossDeleteStatus, ] = $this->curlGet('admin/onlinestudent/tenantOnlineStudentDelete/' . $applicationId);
+                $this->assertSame(200, $crossDeleteStatus);
+
+                // Tenant 26 references tenant 25's real class_section as its own -- must 404.
+                [$forgeStatus, ] = $this->curlPost('admin/onlinestudent/tenantOnlineStudentEdit/' . $applicationId, ['firstname' => 'Forged']);
+                $this->assertSame(404, $forgeStatus, 'editing another tenant application must be rejected');
+            } finally {
+                $this->cookieJar = $realCookieJar;
+                @unlink($otherCookieJar);
+            }
+
+            $pdo = new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', '');
+            $stillThere = (int) $pdo->query("SELECT COUNT(*) FROM online_admissions WHERE id = $applicationId")->fetchColumn();
+            $this->assertSame(1, $stillThere, 'the row must still exist after the other tenant\'s attempted cross-tenant delete');
+
+            [$deleteStatus, $deleteBody] = $this->curlGet('admin/onlinestudent/tenantOnlineStudentDelete/' . $applicationId);
+            $this->assertSame(200, $deleteStatus);
+            $this->assertStringContainsString('deleted', $deleteBody);
+            $applicationId = 0;
+        } finally {
+            if ($applicationId) {
+                (new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', ''))
+                    ->exec("DELETE FROM online_admissions WHERE id = $applicationId");
+            }
+        }
+    }
+
+    public function testTenantOnlineStudentEditRejectsForgedCategoryId(): void
+    {
+        $applicationId = $this->createOnlineAdmissionFixture(25, 'Isolation Test Applicant 2');
+
+        try {
+            [$loginStatus, ] = $this->curlPostPilotLogin();
+            $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+            // category #1 belongs to tenant 25 too, but hostel_room_id doesn't exist for this tenant --
+            // use a forged category id from a table we know tenant 25 owns zero rows of instead: a
+            // safe forgery is any id belonging to another tenant. Use tenant 26's real class_section.
+            $pdo = new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', '');
+            $otherTenantClassSectionId = (int) $pdo->query('SELECT id FROM class_sections WHERE tenant_id = 26 LIMIT 1')->fetchColumn();
+
+            [$forgeStatus, ] = $this->curlPost('admin/onlinestudent/tenantOnlineStudentEdit/' . $applicationId, [
+                'firstname' => 'Forged', 'class_section_id' => $otherTenantClassSectionId,
+            ]);
+            $this->assertSame(404, $forgeStatus, 'referencing another tenant class_section_id must be rejected');
+        } finally {
+            (new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', ''))
+                ->exec("DELETE FROM online_admissions WHERE id = $applicationId");
+        }
+    }
+
     public function testTenantBookCreateEditDeleteAreIsolatedPerTenant(): void
     {
         $this->verifyTenantCrudCrossTenantIsolation(

@@ -633,4 +633,81 @@ class Onlinestudent extends Admin_Controller
         return true;
     }
 
+    // Admin-side edit/delete only -- the create path is the public,
+    // unauthenticated Welcome::admission() form, out of scope (it doesn't
+    // even set tenant_id today, a separate pre-existing bug not fixed
+    // here). enroll (converting an approved application into a real
+    // students/student_session/fee row via Onlinestudent_model::update's
+    // 'enroll' action branch) is a genuinely separate multi-table
+    // transaction, deliberately not exposed by this route -- only the
+    // 'save' (plain field edit) shape is implemented.
+    public function tenantOnlineStudentEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $application = $this->onlinestudent_model->tenantScopedFind('online_admissions', $tenantId, (int) $id);
+        if (!$application) {
+            show_404();
+
+            return;
+        }
+
+        if ($this->input->method() === 'post') {
+            $this->form_validation->set_rules('firstname', 'First Name', 'trim|required|xss_clean');
+
+            if ($this->form_validation->run() !== false) {
+                $data = [
+                    'firstname'         => $this->input->post('firstname'),
+                    'lastname'          => (string) $this->input->post('lastname'),
+                    'mobileno'          => (string) $this->input->post('mobileno'),
+                    'email'             => (string) $this->input->post('email'),
+                    'current_address'   => (string) $this->input->post('current_address'),
+                    'permanent_address' => (string) $this->input->post('permanent_address'),
+                ];
+
+                foreach (['category_id' => 'categories', 'class_section_id' => 'class_sections', 'hostel_room_id' => 'hostel_rooms', 'school_house_id' => 'school_houses'] as $field => $table) {
+                    $value = $this->input->post($field);
+                    if ($value !== null && $value !== '') {
+                        $value = (int) $value;
+                        if (!$this->onlinestudent_model->tenantScopedFind($table, $tenantId, $value)) {
+                            show_404();
+
+                            return;
+                        }
+                        $data[$field] = $value;
+                    }
+                }
+
+                $this->onlinestudent_model->tenantScopedUpdate('online_admissions', $tenantId, (int) $id, $data);
+                $application = $this->onlinestudent_model->tenantScopedFind('online_admissions', $tenantId, (int) $id);
+            }
+        }
+
+        $this->load->view('admin/onlinestudent/tenant_onlinestudent_edit', ['application' => $application]);
+    }
+
+    public function tenantOnlineStudentDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $deleted = $this->onlinestudent_model->tenantScopedDelete('online_admissions', $tenantId, (int) $id);
+        if ($deleted) {
+            $this->db->where('belong_table_id', (int) $id)->where('tenant_id', $tenantId)->delete('online_admission_custom_field_value');
+        }
+
+        $this->load->view('admin/onlinestudent/tenant_onlinestudent_delete', ['deleted' => $deleted]);
+    }
+
 }
