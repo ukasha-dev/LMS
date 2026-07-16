@@ -109,7 +109,49 @@ class Site extends Public_Controller
                         $query = $test_db->get('staff');
                         if ($query && $query->num_rows() == 1) {
                             $row = $query->row();
-                            if ($this->enc_lib->passHashDyc($login_post['password'], $row->password)) {
+                            if ($group_name === 'branch_25') {
+                                // --- REAL LOGIN GATE (Phase 4 Stage 1) ---
+                                // school_saas is now the authoritative password
+                                // check for tenant 25 (branch_25 / al_hafeez_campus).
+                                // This branch's own row (fetched above by the
+                                // unmodified surrounding loop) is used as the
+                                // fallback so a stale school_saas password can
+                                // never lock a real user out. Any error here
+                                // degrades to exactly today's check, never worse.
+                                // Never reassigns $this->db.
+                                try {
+                                    require_once APPPATH . '../tools/multitenant/RealLoginGate.php';
+                                    $realLoginDbConfig = $db['school_saas_pilot'];
+                                    $realLoginPdo = new PDO(
+                                        'mysql:host=' . $realLoginDbConfig['hostname'] . ';dbname=' . $realLoginDbConfig['database'] . ';charset=utf8mb4',
+                                        $realLoginDbConfig['username'],
+                                        $realLoginDbConfig['password']
+                                    );
+                                    $realLoginPdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+                                    $realLoginGate = new RealLoginGate($realLoginPdo);
+                                    $branchRowPassword = $row->password;
+                                    $gateResult = $realLoginGate->verify(
+                                        $login_post['email'],
+                                        $login_post['password'],
+                                        25,
+                                        [$this->enc_lib, 'passHashDyc'],
+                                        function () use ($login_post, $branchRowPassword) {
+                                            return $this->enc_lib->passHashDyc($login_post['password'], $branchRowPassword);
+                                        }
+                                    );
+                                    if ($gateResult['source'] === 'legacy') {
+                                        log_message('error', '[RealLoginGate] PASSWORD_DRIFT_DETECTED tenant_id=25 email=' . $login_post['email']);
+                                    }
+                                    $passwordMatched = $gateResult['success'];
+                                } catch (\Throwable $e) {
+                                    log_message('error', '[RealLoginGate] EXCEPTION ' . $e->getMessage());
+                                    $passwordMatched = $this->enc_lib->passHashDyc($login_post['password'], $row->password);
+                                }
+                                // --- END REAL LOGIN GATE ---
+                            } else {
+                                $passwordMatched = $this->enc_lib->passHashDyc($login_post['password'], $row->password);
+                            }
+                            if ($passwordMatched) {
                                 $found_group = $group_name;
                                 $test_db->close();
                                 break;
