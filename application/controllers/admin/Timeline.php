@@ -9,6 +9,7 @@ class Timeline extends Admin_Controller
 
         $this->load->library('form_validation');
         $this->load->library('media_storage');
+        $this->load->library('tenant_media_storage');
         $this->load->model('timeline_model');
     }
 
@@ -373,4 +374,199 @@ class Timeline extends Admin_Controller
         }
         return true;
     }
+
+    // One real FK per path (student_id -> students, staff_id -> staff),
+    // verified before use. created_student_id (student_timeline) is
+    // NOT NULL int NOT NULL but the legacy add() always inserts '' -- a
+    // pre-existing latent bug, not fixed here (flagged only); this route
+    // supplies 0 to avoid inheriting it.
+    public function tenantStudentTimelineCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $this->form_validation->set_rules('timeline_title', 'Title', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('timeline_date', 'Date', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('student_id', 'Student', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/timeline/tenant_student_timeline_create', ['created' => false]);
+
+            return;
+        }
+
+        $studentId = (int) $this->input->post('student_id');
+        if (!$this->timeline_model->tenantScopedFind('students', $tenantId, $studentId)) {
+            show_404();
+
+            return;
+        }
+
+        $timelineId = $this->timeline_model->tenantScopedInsert('student_timeline', $tenantId, [
+            'title'              => $this->input->post('timeline_title'),
+            'description'        => (string) $this->input->post('timeline_desc'),
+            'timeline_date'      => $this->input->post('timeline_date'),
+            'status'             => $this->input->post('visible_check') ? 'yes' : '',
+            'date'               => date('Y-m-d'),
+            'student_id'         => $studentId,
+            'created_student_id' => 0,
+            'document'           => $this->tenant_media_storage->upload('timeline_doc', $tenantId, 'student_timeline') ?: '',
+        ]);
+
+        $this->load->view('admin/timeline/tenant_student_timeline_create', ['created' => true, 'id' => $timelineId]);
+    }
+
+    public function tenantStaffTimelineCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $this->form_validation->set_rules('timeline_title', 'Title', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('timeline_date', 'Date', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('staff_id', 'Staff', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/timeline/tenant_staff_timeline_create', ['created' => false]);
+
+            return;
+        }
+
+        $staffId = (int) $this->input->post('staff_id');
+        if (!$this->timeline_model->tenantScopedFind('staff', $tenantId, $staffId)) {
+            show_404();
+
+            return;
+        }
+
+        $timelineId = $this->timeline_model->tenantScopedInsert('staff_timeline', $tenantId, [
+            'title'         => $this->input->post('timeline_title'),
+            'description'   => (string) $this->input->post('timeline_desc'),
+            'timeline_date' => $this->input->post('timeline_date'),
+            'status'        => $this->input->post('visible_check') ? 'yes' : '',
+            'date'          => date('Y-m-d'),
+            'staff_id'      => $staffId,
+            'document'      => $this->tenant_media_storage->upload('timeline_doc', $tenantId, 'staff_timeline') ?: '',
+        ]);
+
+        $this->load->view('admin/timeline/tenant_staff_timeline_create', ['created' => true, 'id' => $timelineId]);
+    }
+
+    public function tenantStudentTimelineEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $timeline = $this->timeline_model->tenantScopedFind('student_timeline', $tenantId, (int) $id);
+        if (!$timeline) {
+            show_404();
+
+            return;
+        }
+
+        if ($this->input->method() === 'post') {
+            $this->form_validation->set_rules('timeline_title', 'Title', 'trim|required|xss_clean');
+            $this->form_validation->set_rules('timeline_date', 'Date', 'trim|required|xss_clean');
+
+            if ($this->form_validation->run() !== false) {
+                $this->timeline_model->tenantScopedUpdate('student_timeline', $tenantId, (int) $id, [
+                    'title'         => $this->input->post('timeline_title'),
+                    'description'   => (string) $this->input->post('timeline_desc'),
+                    'timeline_date' => $this->input->post('timeline_date'),
+                    'status'        => $this->input->post('visible_check') ? 'yes' : '',
+                ]);
+                $timeline = $this->timeline_model->tenantScopedFind('student_timeline', $tenantId, (int) $id);
+            }
+        }
+
+        $this->load->view('admin/timeline/tenant_student_timeline_edit', ['timeline' => $timeline]);
+    }
+
+    public function tenantStaffTimelineEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $timeline = $this->timeline_model->tenantScopedFind('staff_timeline', $tenantId, (int) $id);
+        if (!$timeline) {
+            show_404();
+
+            return;
+        }
+
+        if ($this->input->method() === 'post') {
+            $this->form_validation->set_rules('timeline_title', 'Title', 'trim|required|xss_clean');
+            $this->form_validation->set_rules('timeline_date', 'Date', 'trim|required|xss_clean');
+
+            if ($this->form_validation->run() !== false) {
+                $this->timeline_model->tenantScopedUpdate('staff_timeline', $tenantId, (int) $id, [
+                    'title'         => $this->input->post('timeline_title'),
+                    'description'   => (string) $this->input->post('timeline_desc'),
+                    'timeline_date' => $this->input->post('timeline_date'),
+                    'status'        => $this->input->post('visible_check') ? 'yes' : '',
+                ]);
+                $timeline = $this->timeline_model->tenantScopedFind('staff_timeline', $tenantId, (int) $id);
+            }
+        }
+
+        $this->load->view('admin/timeline/tenant_staff_timeline_edit', ['timeline' => $timeline]);
+    }
+
+    public function tenantStudentTimelineDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $timeline = $this->timeline_model->tenantScopedFind('student_timeline', $tenantId, (int) $id);
+        $deleted  = $this->timeline_model->tenantScopedDelete('student_timeline', $tenantId, (int) $id);
+        if ($deleted && $timeline) {
+            $this->tenant_media_storage->delete($timeline['document']);
+        }
+
+        $this->load->view('admin/timeline/tenant_timeline_delete', ['deleted' => $deleted]);
+    }
+
+    public function tenantStaffTimelineDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $timeline = $this->timeline_model->tenantScopedFind('staff_timeline', $tenantId, (int) $id);
+        $deleted  = $this->timeline_model->tenantScopedDelete('staff_timeline', $tenantId, (int) $id);
+        if ($deleted && $timeline) {
+            $this->tenant_media_storage->delete($timeline['document']);
+        }
+
+        $this->load->view('admin/timeline/tenant_timeline_delete', ['deleted' => $deleted]);
+    }
+
 }

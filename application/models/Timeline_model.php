@@ -4,7 +4,7 @@ if (!defined('BASEPATH')) {
     exit('No direct script access allowed');
 }
 
-class Timeline_model extends CI_Model
+class Timeline_model extends MY_Model
 {
 
     public function add($data)

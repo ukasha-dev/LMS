@@ -2306,6 +2306,88 @@ final class AdminControllerTenantGateTest extends TestCase
         }
     }
 
+    public function testTenantStudentTimelineCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/timeline/tenantStudentTimelineCreate',
+            ['timeline_title' => 'Isolation Test Student Timeline', 'timeline_date' => '2026-01-01', 'timeline_desc' => 'x', 'student_id' => 1],
+            'Student timeline created with id',
+            'admin/timeline/tenantStudentTimelineEdit/',
+            'admin/timeline/tenantStudentTimelineDelete/',
+            'Isolation Test Student Timeline',
+            'Timeline entry deleted.',
+            'No matching timeline entry found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantStudentTimelineCreateRejectsForgedStudentId(): void
+    {
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        $otherCookieJar = tempnam(sys_get_temp_dir(), 'admgate_test_other_');
+        $realCookieJar = $this->cookieJar;
+        $this->cookieJar = $otherCookieJar;
+
+        try {
+            [$otherLoginStatus, ] = $this->curlPostPilotLoginAs(26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!');
+            $this->assertContains($otherLoginStatus, [200, 302, 303, 307]);
+
+            // Tenant 26 references tenant 25's real student #1 -- must 404.
+            [$forgeStatus, ] = $this->curlPost('admin/timeline/tenantStudentTimelineCreate', [
+                'timeline_title' => 'Forged Student Timeline',
+                'timeline_date' => '2026-01-01',
+                'student_id' => 1,
+            ]);
+            $this->assertSame(404, $forgeStatus, 'referencing another tenant student_id must be rejected');
+        } finally {
+            $this->cookieJar = $realCookieJar;
+            @unlink($otherCookieJar);
+        }
+    }
+
+    public function testTenantStaffTimelineCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/timeline/tenantStaffTimelineCreate',
+            ['timeline_title' => 'Isolation Test Staff Timeline', 'timeline_date' => '2026-01-01', 'timeline_desc' => 'x', 'staff_id' => 1],
+            'Staff timeline created with id',
+            'admin/timeline/tenantStaffTimelineEdit/',
+            'admin/timeline/tenantStaffTimelineDelete/',
+            'Isolation Test Staff Timeline',
+            'Timeline entry deleted.',
+            'No matching timeline entry found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantStaffTimelineCreateRejectsForgedStaffId(): void
+    {
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        $otherCookieJar = tempnam(sys_get_temp_dir(), 'admgate_test_other_');
+        $realCookieJar = $this->cookieJar;
+        $this->cookieJar = $otherCookieJar;
+
+        try {
+            [$otherLoginStatus, ] = $this->curlPostPilotLoginAs(26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!');
+            $this->assertContains($otherLoginStatus, [200, 302, 303, 307]);
+
+            // Tenant 26 references tenant 25's real staff #1 -- must 404.
+            [$forgeStatus, ] = $this->curlPost('admin/timeline/tenantStaffTimelineCreate', [
+                'timeline_title' => 'Forged Staff Timeline',
+                'timeline_date' => '2026-01-01',
+                'staff_id' => 1,
+            ]);
+            $this->assertSame(404, $forgeStatus, 'referencing another tenant staff_id must be rejected');
+        } finally {
+            $this->cookieJar = $realCookieJar;
+            @unlink($otherCookieJar);
+        }
+    }
+
     public function testTenantMarksheetCreateEditDeleteAreIsolatedPerTenant(): void
     {
         $this->verifyTenantCrudCrossTenantIsolation(
