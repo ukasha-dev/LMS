@@ -11,7 +11,8 @@ class Content extends Admin_Controller
     {
         parent::__construct();
         $this->load->library('Enc_lib');
-        $this->load->library('media_storage'); 
+        $this->load->library('media_storage');
+        $this->load->library('tenant_media_storage');
         $this->load->model(array('contenttype_model', 'uploadcontent_model', 'sharecontent_model'));
     }
 
@@ -920,6 +921,121 @@ class Content extends Admin_Controller
             $this->session->set_flashdata('msg', '<div class="alert alert-success text-center">' . $this->lang->line('success_message') . '</div>');
             redirect('admin/content/createcontent/index');
         }
+    }
+
+    // Base entity only (contents table). content_for (role-assignment
+    // batch-insert satellite), sharecontent_model's share-link feature, and
+    // uploadcontent_model's separate content-library feature are all out of
+    // scope -- distinct joined/sibling features from the base contents
+    // entity this migration's create/edit targets. created_by is
+    // server-derived from the logged-in staff's session, not client input.
+    public function tenantContentCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $this->form_validation->set_rules('content_title', 'Title', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('content_type', 'Type', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/content/tenant_content_create', ['created' => false]);
+
+            return;
+        }
+
+        $classId = $this->input->post('class_id');
+        if ($classId !== null && $classId !== '') {
+            $classId = (int) $classId;
+            if (!$this->content_model->tenantScopedFind('classes', $tenantId, $classId)) {
+                show_404();
+
+                return;
+            }
+        } else {
+            $classId = null;
+        }
+
+        $clsSecId = $this->input->post('cls_sec_id');
+        if ($clsSecId !== null && $clsSecId !== '') {
+            $clsSecId = (int) $clsSecId;
+            if (!$this->content_model->tenantScopedFind('class_sections', $tenantId, $clsSecId)) {
+                show_404();
+
+                return;
+            }
+        } else {
+            $clsSecId = null;
+        }
+
+        $id = $this->content_model->tenantScopedInsert('contents', $tenantId, [
+            'title'      => $this->input->post('content_title'),
+            'type'       => $this->input->post('content_type'),
+            'note'       => (string) $this->input->post('note'),
+            'class_id'   => $classId,
+            'cls_sec_id' => $clsSecId,
+            'created_by' => (int) $this->customlib->getStaffID(),
+            'is_public'  => $this->input->post('visibility') ?: 'No',
+            'file'       => $this->tenant_media_storage->upload('file', $tenantId, 'school_content_material') ?: null,
+            'date'       => date('Y-m-d'),
+        ]);
+
+        $this->load->view('admin/content/tenant_content_create', ['created' => true, 'id' => $id]);
+    }
+
+    public function tenantContentEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $content = $this->content_model->tenantScopedFind('contents', $tenantId, (int) $id);
+        if (!$content) {
+            show_404();
+
+            return;
+        }
+
+        if ($this->input->method() === 'post') {
+            $this->form_validation->set_rules('content_title', 'Title', 'trim|required|xss_clean');
+
+            if ($this->form_validation->run() !== false) {
+                $this->content_model->tenantScopedUpdate('contents', $tenantId, (int) $id, [
+                    'title' => $this->input->post('content_title'),
+                    'note'  => (string) $this->input->post('note'),
+                ]);
+                $content = $this->content_model->tenantScopedFind('contents', $tenantId, (int) $id);
+            }
+        }
+
+        $this->load->view('admin/content/tenant_content_edit', ['content' => $content]);
+    }
+
+    public function tenantContentDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $content = $this->content_model->tenantScopedFind('contents', $tenantId, (int) $id);
+        $deleted = $this->content_model->tenantScopedDelete('contents', $tenantId, (int) $id);
+        if ($deleted && $content && !empty($content['file'])) {
+            $this->tenant_media_storage->delete($content['file']);
+        }
+
+        $this->load->view('admin/content/tenant_content_delete', ['deleted' => $deleted]);
     }
 
 }
