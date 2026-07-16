@@ -11,6 +11,7 @@ class Item extends Admin_Controller
     {
         parent::__construct();
         $this->load->helper('form');
+        $this->load->library('tenant_media_storage');
     }
 
     public function index()
@@ -170,6 +171,119 @@ class Item extends Admin_Controller
             $this->session->set_flashdata('msg', '<div class="alert alert-success text-left">' . $this->lang->line('success_message') . '</div>');
             redirect('admin/item/index');
         }
+    }
+
+    // One real FK: item_category_id -> item_category, verified before use.
+    // Legacy only supports item_photo upload on edit(), not create() --
+    // mirrored here rather than adding a new capability.
+    public function tenantItemCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $this->form_validation->set_rules('name', 'Name', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('unit', 'Unit', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('item_category_id', 'Item Category', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/item/tenant_item_create', ['created' => false]);
+
+            return;
+        }
+
+        $categoryId = (int) $this->input->post('item_category_id');
+        if (!$this->item_model->tenantScopedFind('item_category', $tenantId, $categoryId)) {
+            show_404();
+
+            return;
+        }
+
+        $itemId = $this->item_model->tenantScopedInsert('item', $tenantId, [
+            'item_category_id' => $categoryId,
+            'name'              => $this->input->post('name'),
+            'unit'              => $this->input->post('unit'),
+            'description'       => (string) $this->input->post('description'),
+            'quantity'          => 0,
+        ]);
+
+        $this->load->view('admin/item/tenant_item_create', ['created' => true, 'id' => $itemId]);
+    }
+
+    public function tenantItemEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $item = $this->item_model->tenantScopedFind('item', $tenantId, (int) $id);
+        if (!$item) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('name', 'Name', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('unit', 'Unit', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('item_category_id', 'Item Category', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/item/tenant_item_edit', ['updated' => false, 'item' => $item]);
+
+            return;
+        }
+
+        $categoryId = (int) $this->input->post('item_category_id');
+        if (!$this->item_model->tenantScopedFind('item_category', $tenantId, $categoryId)) {
+            show_404();
+
+            return;
+        }
+
+        $updateData = [
+            'item_category_id' => $categoryId,
+            'name'              => $this->input->post('name'),
+            'unit'              => $this->input->post('unit'),
+            'description'       => (string) $this->input->post('description'),
+        ];
+
+        $newImage = $this->tenant_media_storage->upload('item_photo', $tenantId, 'inventory_items');
+        if ($newImage) {
+            $this->tenant_media_storage->delete($item['item_photo']);
+            $updateData['item_photo'] = $newImage;
+        }
+
+        $this->item_model->tenantScopedUpdate('item', $tenantId, (int) $id, $updateData);
+
+        $item = $this->item_model->tenantScopedFind('item', $tenantId, (int) $id);
+        $this->load->view('admin/item/tenant_item_edit', ['updated' => true, 'item' => $item]);
+    }
+
+    public function tenantItemDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $item    = $this->item_model->tenantScopedFind('item', $tenantId, (int) $id);
+        $deleted = $this->item_model->tenantScopedDelete('item', $tenantId, (int) $id);
+        if ($deleted && $item) {
+            $this->tenant_media_storage->delete($item['item_photo']);
+        }
+
+        $this->load->view('admin/item/tenant_item_delete', ['deleted' => $deleted]);
     }
 
 }

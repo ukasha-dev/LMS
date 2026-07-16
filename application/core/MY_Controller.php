@@ -123,6 +123,8 @@ class Admin_Controller extends MY_Controller
                 'receive' => ['tenantreceivecreate', 'tenantreceiveedit', 'tenantreceivedelete'],
                 'staffidcard' => ['tenantstaffidcardcreate', 'tenantstaffidcardedit', 'tenantstaffidcarddelete'],
                 'studentidcard' => ['tenantstudentidcardcreate', 'tenantstudentidcardedit', 'tenantstudentidcarddelete'],
+                'item' => ['tenantitemcreate', 'tenantitemedit', 'tenantitemdelete'],
+                'marksheet' => ['tenantmarksheetcreate', 'tenantmarksheetedit', 'tenantmarksheetdelete'],
             ];
             if (!isset($allowedTenantRoutes[$activeController]) || !in_array($activeMethod, $allowedTenantRoutes[$activeController], true)) {
                 show_404();

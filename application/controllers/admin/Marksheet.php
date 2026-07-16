@@ -11,6 +11,7 @@ class Marksheet extends Admin_Controller
     {
         parent::__construct();
         $this->load->library('media_storage');
+        $this->load->library('tenant_media_storage');
     }
 
     public function index()
@@ -548,6 +549,131 @@ class Marksheet extends Admin_Controller
         $data['marksheet'] = $this->marksheet_model->get($id);
         $page = $this->load->view('admin/marksheet/_view', $data, true);
         echo json_encode(array('status' => 1, 'page' => $page));
+    }
+
+    // No FK at all -- every field is a scalar/flag or one of 7 independent
+    // upload slots, all cascade-cleaned on delete matching legacy.
+    private const UPLOAD_FIELDS = ['left_logo', 'right_logo', 'left_sign', 'middle_sign', 'right_sign', 'background_img', 'header_image'];
+
+    public function tenantMarksheetCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $this->form_validation->set_rules('template', 'Template', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/marksheet/tenant_marksheet_create', ['created' => false]);
+
+            return;
+        }
+
+        $insertData = [
+            'template'          => $this->input->post('template'),
+            'heading'           => (string) $this->input->post('heading'),
+            'title'             => (string) $this->input->post('title'),
+            'exam_name'         => (string) $this->input->post('exam_name'),
+            'school_name'       => (string) $this->input->post('school_name'),
+            'exam_center'       => (string) $this->input->post('exam_center'),
+            'date'              => (string) $this->input->post('date'),
+            'is_name'           => $this->input->post('is_name') ? 1 : 0,
+            'is_father_name'    => $this->input->post('is_father_name') ? 1 : 0,
+            'is_mother_name'    => $this->input->post('is_mother_name') ? 1 : 0,
+            'is_admission_no'   => $this->input->post('is_admission_no') ? 1 : 0,
+            'is_roll_no'        => $this->input->post('is_roll_no') ? 1 : 0,
+            'is_photo'          => $this->input->post('is_photo') ? 1 : 0,
+            'is_class'          => $this->input->post('is_class') ? 1 : 0,
+            'is_division'       => $this->input->post('is_division') ? 1 : 0,
+            'is_rank'           => $this->input->post('is_rank') ? 1 : 0,
+            'is_section'        => $this->input->post('is_section') ? 1 : 0,
+            'is_dob'            => $this->input->post('is_dob') ? 1 : 0,
+            'is_teacher_remark' => $this->input->post('is_teacher_remark') ? 1 : 0,
+            'is_customfield'    => 0,
+            'content'           => (string) $this->input->post('content'),
+            'content_footer'    => (string) $this->input->post('content_footer'),
+            'exam_session'      => $this->input->post('exam_session') ? 1 : 0,
+        ];
+
+        foreach (self::UPLOAD_FIELDS as $field) {
+            $insertData[$field] = $this->tenant_media_storage->upload($field, $tenantId, 'marksheet') ?: '';
+        }
+
+        $marksheetId = $this->marksheet_model->tenantScopedInsert('template_marksheets', $tenantId, $insertData);
+
+        $this->load->view('admin/marksheet/tenant_marksheet_create', ['created' => true, 'id' => $marksheetId]);
+    }
+
+    public function tenantMarksheetEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $marksheet = $this->marksheet_model->tenantScopedFind('template_marksheets', $tenantId, (int) $id);
+        if (!$marksheet) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('template', 'Template', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/marksheet/tenant_marksheet_edit', ['updated' => false, 'marksheet' => $marksheet]);
+
+            return;
+        }
+
+        $updateData = [
+            'template'    => $this->input->post('template'),
+            'heading'     => (string) $this->input->post('heading'),
+            'title'       => (string) $this->input->post('title'),
+            'exam_name'   => (string) $this->input->post('exam_name'),
+            'school_name' => (string) $this->input->post('school_name'),
+        ];
+
+        foreach (self::UPLOAD_FIELDS as $field) {
+            $newFile = $this->tenant_media_storage->upload($field, $tenantId, 'marksheet');
+            if ($newFile) {
+                $this->tenant_media_storage->delete($marksheet[$field]);
+                $updateData[$field] = $newFile;
+            }
+        }
+
+        $this->marksheet_model->tenantScopedUpdate('template_marksheets', $tenantId, (int) $id, $updateData);
+
+        $marksheet = $this->marksheet_model->tenantScopedFind('template_marksheets', $tenantId, (int) $id);
+        $this->load->view('admin/marksheet/tenant_marksheet_edit', ['updated' => true, 'marksheet' => $marksheet]);
+    }
+
+    public function tenantMarksheetDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $marksheet = $this->marksheet_model->tenantScopedFind('template_marksheets', $tenantId, (int) $id);
+        $deleted   = $this->marksheet_model->tenantScopedDelete('template_marksheets', $tenantId, (int) $id);
+        if ($deleted && $marksheet) {
+            foreach (self::UPLOAD_FIELDS as $field) {
+                $this->tenant_media_storage->delete($marksheet[$field]);
+            }
+        }
+
+        $this->load->view('admin/marksheet/tenant_marksheet_delete', ['deleted' => $deleted]);
     }
 
 }

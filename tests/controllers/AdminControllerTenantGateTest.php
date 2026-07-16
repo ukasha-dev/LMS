@@ -2265,6 +2265,62 @@ final class AdminControllerTenantGateTest extends TestCase
         );
     }
 
+    public function testTenantItemCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/item/tenantItemCreate',
+            ['name' => 'Isolation Test Item', 'unit' => 'pcs', 'item_category_id' => 1],
+            'Item created with id',
+            'admin/item/tenantItemEdit/',
+            'admin/item/tenantItemDelete/',
+            'Isolation Test Item',
+            'Item deleted.',
+            'No matching item found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantItemCreateRejectsForgedCategoryId(): void
+    {
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        $otherCookieJar = tempnam(sys_get_temp_dir(), 'admgate_test_other_');
+        $realCookieJar = $this->cookieJar;
+        $this->cookieJar = $otherCookieJar;
+
+        try {
+            [$otherLoginStatus, ] = $this->curlPostPilotLoginAs(26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!');
+            $this->assertContains($otherLoginStatus, [200, 302, 303, 307]);
+
+            // Tenant 26 references tenant 25's real item_category #1 -- must 404.
+            [$forgeStatus, ] = $this->curlPost('admin/item/tenantItemCreate', [
+                'name' => 'Forged Item',
+                'unit' => 'pcs',
+                'item_category_id' => 1,
+            ]);
+            $this->assertSame(404, $forgeStatus, 'referencing another tenant item_category_id must be rejected');
+        } finally {
+            $this->cookieJar = $realCookieJar;
+            @unlink($otherCookieJar);
+        }
+    }
+
+    public function testTenantMarksheetCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/marksheet/tenantMarksheetCreate',
+            ['template' => 'default', 'heading' => 'Isolation Test Marksheet', 'title' => 'Marksheet'],
+            'Marksheet created with id',
+            'admin/marksheet/tenantMarksheetEdit/',
+            'admin/marksheet/tenantMarksheetDelete/',
+            'Isolation Test Marksheet',
+            'Marksheet deleted.',
+            'No matching marksheet found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
     private function curlPost(string $path, array $fields): array
     {
         $ch = curl_init(self::BASE_URL . $path);
