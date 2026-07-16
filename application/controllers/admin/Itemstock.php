@@ -11,6 +11,7 @@ class Itemstock extends Admin_Controller
     {
         parent::__construct();
         $this->load->library('media_storage');
+        $this->load->library('tenant_media_storage');
         $this->load->helper('form');
     }
 
@@ -206,11 +207,140 @@ class Itemstock extends Admin_Controller
                 $this->media_storage->filedelete($item['attachment'], "uploads/inventory_items");
             }
 
-            $this->itemstock_model->add($data);         
+            $this->itemstock_model->add($data);
 
             $this->session->set_flashdata('msg', '<div class="alert alert-success text-left">' . $this->lang->line('update_message') . '</div>');
             redirect('admin/itemstock/index');
         }
+    }
+
+    // Whole entity (item_stock has no satellite table). store_id is
+    // optional (legacy treats it that way too); item_id/supplier_id are
+    // required. quantity is stored as a plain signed int rather than
+    // legacy's string-concat-of-symbol-plus-quantity hack. get_currentstock
+    // reporting is out of scope (read-only aggregate, not part of
+    // create/edit).
+    public function tenantItemstockCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $this->form_validation->set_rules('item_id', 'Item', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('supplier_id', 'Supplier', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('date', 'Date', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('purchase_price', 'Price', 'trim|required|numeric|xss_clean');
+        $this->form_validation->set_rules('quantity', 'Quantity', 'trim|required|numeric|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/itemstock/tenant_itemstock_create', ['created' => false]);
+
+            return;
+        }
+
+        $itemId = (int) $this->input->post('item_id');
+        if (!$this->itemstock_model->tenantScopedFind('item', $tenantId, $itemId)) {
+            show_404();
+
+            return;
+        }
+
+        $supplierId = (int) $this->input->post('supplier_id');
+        if (!$this->itemstock_model->tenantScopedFind('item_supplier', $tenantId, $supplierId)) {
+            show_404();
+
+            return;
+        }
+
+        $storeId = $this->input->post('store_id');
+        if ($storeId !== null && $storeId !== '') {
+            $storeId = (int) $storeId;
+            if (!$this->itemstock_model->tenantScopedFind('item_store', $tenantId, $storeId)) {
+                show_404();
+
+                return;
+            }
+        } else {
+            $storeId = null;
+        }
+
+        $symbol   = $this->input->post('symbol') === '-' ? '-' : '+';
+        $quantity = (int) $this->input->post('quantity') * ($symbol === '-' ? -1 : 1);
+
+        $id = $this->itemstock_model->tenantScopedInsert('item_stock', $tenantId, [
+            'item_id'        => $itemId,
+            'supplier_id'    => $supplierId,
+            'store_id'       => $storeId,
+            'symbol'         => $symbol,
+            'quantity'       => $quantity,
+            'purchase_price' => $this->input->post('purchase_price'),
+            'date'           => $this->input->post('date'),
+            'description'    => (string) $this->input->post('description'),
+            'attachment'     => $this->tenant_media_storage->upload('item_photo', $tenantId, 'inventory_items') ?: null,
+        ]);
+
+        $this->load->view('admin/itemstock/tenant_itemstock_create', ['created' => true, 'id' => $id]);
+    }
+
+    public function tenantItemstockEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $stock = $this->itemstock_model->tenantScopedFind('item_stock', $tenantId, (int) $id);
+        if (!$stock) {
+            show_404();
+
+            return;
+        }
+
+        if ($this->input->method() === 'post') {
+            $this->form_validation->set_rules('purchase_price', 'Price', 'trim|required|numeric|xss_clean');
+            $this->form_validation->set_rules('quantity', 'Quantity', 'trim|required|numeric|xss_clean');
+
+            if ($this->form_validation->run() !== false) {
+                $symbol   = $this->input->post('symbol') === '-' ? '-' : '+';
+                $quantity = (int) $this->input->post('quantity') * ($symbol === '-' ? -1 : 1);
+
+                $this->itemstock_model->tenantScopedUpdate('item_stock', $tenantId, (int) $id, [
+                    'symbol'         => $symbol,
+                    'quantity'       => $quantity,
+                    'purchase_price' => $this->input->post('purchase_price'),
+                    'description'    => (string) $this->input->post('description'),
+                ]);
+                $stock = $this->itemstock_model->tenantScopedFind('item_stock', $tenantId, (int) $id);
+            }
+        }
+
+        $this->load->view('admin/itemstock/tenant_itemstock_edit', ['stock' => $stock]);
+    }
+
+    public function tenantItemstockDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $stock   = $this->itemstock_model->tenantScopedFind('item_stock', $tenantId, (int) $id);
+        $deleted = $this->itemstock_model->tenantScopedDelete('item_stock', $tenantId, (int) $id);
+        if ($deleted && $stock && !empty($stock['attachment'])) {
+            $this->tenant_media_storage->delete($stock['attachment']);
+        }
+
+        $this->load->view('admin/itemstock/tenant_itemstock_delete', ['deleted' => $deleted]);
     }
 
 }

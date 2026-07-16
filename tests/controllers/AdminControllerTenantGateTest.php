@@ -2822,6 +2822,69 @@ final class AdminControllerTenantGateTest extends TestCase
         }
     }
 
+    public function testTenantItemstockCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $pdo = new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', '');
+        $pdo->exec("INSERT INTO item (tenant_id, name, unit, description, quantity) VALUES (25, 'Fixture Item', 'pcs', '', 0)");
+        $itemId = (int) $pdo->lastInsertId();
+        $pdo->exec("INSERT INTO item_supplier (tenant_id, item_supplier, phone, email, address, contact_person_name, contact_person_phone, contact_person_email, description) VALUES (25, 'Fixture Supplier', '1', 'x@x.com', 'x', 'x', '1', 'x@x.com', '')");
+        $supplierId = (int) $pdo->lastInsertId();
+
+        try {
+            $this->verifyTenantCrudCrossTenantIsolation(
+                'admin/itemstock/tenantItemstockCreate',
+                [
+                    'item_id' => $itemId, 'supplier_id' => $supplierId, 'symbol' => '+', 'quantity' => 10,
+                    'purchase_price' => '100', 'date' => '2026-01-01', 'description' => 'Isolation Test Item Stock',
+                ],
+                'Item stock created with id',
+                'admin/itemstock/tenantItemstockEdit/',
+                'admin/itemstock/tenantItemstockDelete/',
+                'Isolation Test Item Stock',
+                'Item stock deleted.',
+                'No matching item stock found for this tenant.',
+                26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+            );
+        } finally {
+            $pdo->exec("DELETE FROM item WHERE id = $itemId");
+            $pdo->exec("DELETE FROM item_supplier WHERE id = $supplierId");
+        }
+    }
+
+    public function testTenantItemstockCreateRejectsForgedItemAndSupplierId(): void
+    {
+        $pdo = new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', '');
+        $pdo->exec("INSERT INTO item (tenant_id, name, unit, description, quantity) VALUES (25, 'Fixture Item', 'pcs', '', 0)");
+        $itemId = (int) $pdo->lastInsertId();
+        $pdo->exec("INSERT INTO item_supplier (tenant_id, item_supplier, phone, email, address, contact_person_name, contact_person_phone, contact_person_email, description) VALUES (25, 'Fixture Supplier', '1', 'x@x.com', 'x', 'x', '1', 'x@x.com', '')");
+        $supplierId = (int) $pdo->lastInsertId();
+
+        try {
+            [$loginStatus, ] = $this->curlPostPilotLogin();
+            $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+            $otherCookieJar = tempnam(sys_get_temp_dir(), 'admgate_test_other_');
+            $realCookieJar = $this->cookieJar;
+            $this->cookieJar = $otherCookieJar;
+
+            try {
+                [$otherLoginStatus, ] = $this->curlPostPilotLoginAs(26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!');
+                $this->assertContains($otherLoginStatus, [200, 302, 303, 307]);
+
+                $baseFields = ['symbol' => '+', 'quantity' => 10, 'purchase_price' => '100', 'date' => '2026-01-01'];
+
+                [$forgeItemStatus, ] = $this->curlPost('admin/itemstock/tenantItemstockCreate', $baseFields + ['item_id' => $itemId, 'supplier_id' => $supplierId]);
+                $this->assertSame(404, $forgeItemStatus, 'referencing another tenant item_id must be rejected');
+            } finally {
+                $this->cookieJar = $realCookieJar;
+                @unlink($otherCookieJar);
+            }
+        } finally {
+            $pdo->exec("DELETE FROM item WHERE id = $itemId");
+            $pdo->exec("DELETE FROM item_supplier WHERE id = $supplierId");
+        }
+    }
+
     public function testTenantBookCreateEditDeleteAreIsolatedPerTenant(): void
     {
         $this->verifyTenantCrudCrossTenantIsolation(
