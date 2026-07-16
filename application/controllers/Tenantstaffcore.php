@@ -29,12 +29,16 @@ if (!defined('BASEPATH')) {
 //    tenant's sequence starts at 1 independently regardless of what any
 //    other tenant (or a missing settings row) has.
 //
-// Also DEFERRED: file uploads (photo/documents), payroll/leave-type
-// assignment, custom fields. staff logins are a non-issue for delete here
-// -- zero rows in `users` currently have role='staff' in school_saas (only
-// parent/student were ever migrated), so there is no login to orphan; if a
-// later stage adds staff logins, this delete route will need the same
-// has-a-login guard Tenantstudentcore's delete has.
+// Photo upload uses Tenant_media_storage (application/libraries/
+// Tenant_media_storage.php), the same tenant-scoped storage pattern proven
+// on Tenantstudentcore -- every tenant's files live under their own
+// uploads/tenant_uploads/tenant_<id>/staff_images/ directory.
+// Also DEFERRED: document uploads, payroll/leave-type assignment, custom
+// fields. staff logins are a non-issue for delete here -- zero rows in
+// `users` currently have role='staff' in school_saas (only parent/student
+// were ever migrated), so there is no login to orphan; if a later stage
+// adds staff logins, this delete route will need the same has-a-login
+// guard Tenantstudentcore's delete has.
 class Tenantstaffcore extends Admin_Controller
 {
 
@@ -43,6 +47,7 @@ class Tenantstaffcore extends Admin_Controller
         parent::__construct();
         $this->load->model(array('staff_model'));
         $this->load->library('enc_lib');
+        $this->load->library('tenant_media_storage');
     }
 
     private function tenantId()
@@ -141,7 +146,8 @@ class Tenantstaffcore extends Admin_Controller
             return;
         }
 
-        $password = $this->role->get_random_password(6, 6, false, true, false);
+        $password    = $this->role->get_random_password(6, 6, false, true, false);
+        $insertImage = $this->tenant_media_storage->upload('photo', $tenantId, 'staff_images');
 
         $staffId = $this->staff_model->tenantScopedInsert('staff', $tenantId, [
             'employee_id' => $employeeId,
@@ -156,6 +162,7 @@ class Tenantstaffcore extends Admin_Controller
             'is_active'   => 1,
             'lang_id'     => 0,
             'currency_id' => 0,
+            'image'       => $insertImage,
         ]);
 
         if ($roleId) {
@@ -166,7 +173,7 @@ class Tenantstaffcore extends Admin_Controller
             ]);
         }
 
-        $this->load->view('admin/staff/tenant_staff_core_create', ['created' => true, 'id' => $staffId, 'employeeId' => $employeeId]);
+        $this->load->view('admin/staff/tenant_staff_core_create', ['created' => true, 'id' => $staffId, 'employeeId' => $employeeId, 'image' => $insertImage]);
     }
 
     public function tenantStaffCoreEdit($id)
@@ -213,7 +220,7 @@ class Tenantstaffcore extends Admin_Controller
             return;
         }
 
-        $this->staff_model->tenantScopedUpdate('staff', $tenantId, (int) $id, [
+        $updateData = [
             'name'        => $this->input->post('name'),
             'surname'     => $this->input->post('surname'),
             'email'       => $email,
@@ -221,7 +228,15 @@ class Tenantstaffcore extends Admin_Controller
             'dob'         => $this->input->post('dob') ?: null,
             'department'  => $departmentId ?: null,
             'designation' => $designationId ?: null,
-        ]);
+        ];
+
+        $newImage = $this->tenant_media_storage->upload('photo', $tenantId, 'staff_images');
+        if ($newImage) {
+            $this->tenant_media_storage->delete($staff['image']);
+            $updateData['image'] = $newImage;
+        }
+
+        $this->staff_model->tenantScopedUpdate('staff', $tenantId, (int) $id, $updateData);
 
         $staff = $this->staff_model->tenantScopedFind('staff', $tenantId, (int) $id);
         $this->load->view('admin/staff/tenant_staff_core_edit', ['updated' => true, 'staff' => $staff]);
@@ -246,6 +261,10 @@ class Tenantstaffcore extends Admin_Controller
 
         $this->db->where('staff_id', (int) $id)->where('tenant_id', $tenantId)->delete('staff_roles');
         $deleted = $this->staff_model->tenantScopedDelete('staff', $tenantId, (int) $id);
+
+        if ($deleted) {
+            $this->tenant_media_storage->delete($staff['image']);
+        }
 
         $this->load->view('admin/staff/tenant_staff_core_delete', ['deleted' => $deleted]);
     }

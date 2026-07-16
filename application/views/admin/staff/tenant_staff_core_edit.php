@@ -8,7 +8,8 @@
 <p>Email already exists for this tenant.</p>
 <?php endif; ?>
 <h1>Edit Staff #<?php echo (int) $staff['id']; ?></h1>
-<form method="post">
+<p>image: <?php echo htmlspecialchars((string) ($staff['image'] ?? '')); ?></p>
+<form method="post" enctype="multipart/form-data">
     <input type="text" name="name" value="<?php echo htmlspecialchars((string) $staff['name']); ?>">
     <input type="text" name="surname" value="<?php echo htmlspecialchars((string) $staff['surname']); ?>">
     <input type="text" name="email" value="<?php echo htmlspecialchars((string) $staff['email']); ?>">
@@ -16,6 +17,7 @@
     <input type="text" name="dob" value="<?php echo htmlspecialchars((string) $staff['dob']); ?>">
     <input type="text" name="department" value="<?php echo htmlspecialchars((string) $staff['department']); ?>">
     <input type="text" name="designation" value="<?php echo htmlspecialchars((string) $staff['designation']); ?>">
+    <input type="file" name="photo">
     <button type="submit">Update</button>
 </form>
 </body>

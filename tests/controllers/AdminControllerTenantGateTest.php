@@ -1940,6 +1940,48 @@ final class AdminControllerTenantGateTest extends TestCase
         }
     }
 
+    public function testTenantStaffCorePhotoUploadIsStoredUnderATenantScopedDirectory(): void
+    {
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        $pngBytes = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=');
+        $tmpFile = tempnam(sys_get_temp_dir(), 'admgate_staffphoto_') . '.png';
+        file_put_contents($tmpFile, $pngBytes);
+
+        $staffId = null;
+
+        try {
+            [$createStatus, $createBody] = $this->curlPostMultipart('tenantstaffcore/tenantStaffCoreCreate', [
+                'name' => 'Isolation Test Photo Staff',
+                'email' => 'isotest.photostaff@example.test',
+            ], 'photo', $tmpFile);
+            $this->assertSame(200, $createStatus);
+            $this->assertMatchesRegularExpression('/Staff created with id (\d+)/', $createBody);
+            preg_match('/Staff created with id (\d+)/', $createBody, $matches);
+            $staffId = (int) $matches[1];
+
+            $this->assertMatchesRegularExpression('#image: tenant_25/staff_images/\S+!test-photo\.png#', $createBody);
+            preg_match('#image: (tenant_25/staff_images/\S+!test-photo\.png)#', $createBody, $imageMatches);
+            $storedPath = $imageMatches[1];
+
+            $absolutePath = __DIR__ . '/../../uploads/tenant_uploads/' . $storedPath;
+            $this->assertFileExists($absolutePath, 'the uploaded file must actually exist on disk under the tenant-scoped directory');
+
+            [$deleteStatus, ] = $this->curlGet('tenantstaffcore/tenantStaffCoreDelete/' . $staffId);
+            $this->assertSame(200, $deleteStatus);
+            $this->assertFileDoesNotExist($absolutePath, 'delete must clean up the physical file, not just the DB row');
+            $staffId = null;
+        } finally {
+            @unlink($tmpFile);
+            if ($staffId) {
+                $pdo = new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', '');
+                $pdo->exec('DELETE FROM staff_roles WHERE staff_id = ' . (int) $staffId);
+                $pdo->exec('DELETE FROM staff WHERE id = ' . (int) $staffId);
+            }
+        }
+    }
+
     private function curlPost(string $path, array $fields): array
     {
         $ch = curl_init(self::BASE_URL . $path);
