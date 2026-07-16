@@ -11,6 +11,7 @@ class Vehicle extends Admin_Controller
     {
         parent::__construct();
         $this->load->library('media_storage');
+        $this->load->library('tenant_media_storage');
     }
 
     public function index()
@@ -192,6 +193,117 @@ class Vehicle extends Admin_Controller
             return true;
         }
         return true;
+    }
+
+    // No FK at all -- driver/registration fields are all plain scalars in
+    // the legacy model too. Delete cascades to vehicle_routes (a real,
+    // tenant-scoped junction table already), scoped by tenant here the same
+    // way, matching legacy's own cascade shape.
+    public function tenantVehicleCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $this->form_validation->set_rules('vehicle_no', 'Vehicle No', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/vehicle/tenant_vehicle_create', ['created' => false]);
+
+            return;
+        }
+
+        $insertImage = $this->tenant_media_storage->upload('photo', $tenantId, 'vehicle_photo');
+
+        $vehicleId = $this->vehicle_model->tenantScopedInsert('vehicles', $tenantId, [
+            'vehicle_no'           => $this->input->post('vehicle_no'),
+            'vehicle_model'        => (string) $this->input->post('vehicle_model'),
+            'driver_name'          => $this->input->post('driver_name'),
+            'driver_licence'       => (string) $this->input->post('driver_licence'),
+            'driver_contact'       => $this->input->post('driver_contact'),
+            'note'                 => $this->input->post('note'),
+            'registration_number'  => (string) $this->input->post('registration_number'),
+            'chasis_number'        => (string) $this->input->post('chasis_number'),
+            'max_seating_capacity' => (string) $this->input->post('max_seating_capacity'),
+            'manufacture_year'     => $this->input->post('manufacture_year'),
+            'vehicle_photo'        => $insertImage,
+        ]);
+
+        $this->load->view('admin/vehicle/tenant_vehicle_create', ['created' => true, 'id' => $vehicleId, 'image' => $insertImage]);
+    }
+
+    public function tenantVehicleEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $vehicle = $this->vehicle_model->tenantScopedFind('vehicles', $tenantId, (int) $id);
+        if (!$vehicle) {
+            show_404();
+
+            return;
+        }
+
+        $this->form_validation->set_rules('vehicle_no', 'Vehicle No', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/vehicle/tenant_vehicle_edit', ['updated' => false, 'vehicle' => $vehicle]);
+
+            return;
+        }
+
+        $updateData = [
+            'vehicle_no'           => $this->input->post('vehicle_no'),
+            'vehicle_model'        => (string) $this->input->post('vehicle_model'),
+            'driver_name'          => $this->input->post('driver_name'),
+            'driver_licence'       => (string) $this->input->post('driver_licence'),
+            'driver_contact'       => $this->input->post('driver_contact'),
+            'note'                 => $this->input->post('note'),
+            'registration_number'  => (string) $this->input->post('registration_number'),
+            'chasis_number'        => (string) $this->input->post('chasis_number'),
+            'max_seating_capacity' => (string) $this->input->post('max_seating_capacity'),
+            'manufacture_year'     => $this->input->post('manufacture_year'),
+        ];
+
+        $newImage = $this->tenant_media_storage->upload('photo', $tenantId, 'vehicle_photo');
+        if ($newImage) {
+            $this->tenant_media_storage->delete($vehicle['vehicle_photo']);
+            $updateData['vehicle_photo'] = $newImage;
+        }
+
+        $this->vehicle_model->tenantScopedUpdate('vehicles', $tenantId, (int) $id, $updateData);
+
+        $vehicle = $this->vehicle_model->tenantScopedFind('vehicles', $tenantId, (int) $id);
+        $this->load->view('admin/vehicle/tenant_vehicle_edit', ['updated' => true, 'vehicle' => $vehicle]);
+    }
+
+    public function tenantVehicleDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $vehicle = $this->vehicle_model->tenantScopedFind('vehicles', $tenantId, (int) $id);
+        $deleted = $this->vehicle_model->tenantScopedDelete('vehicles', $tenantId, (int) $id);
+        if ($deleted && $vehicle) {
+            $this->db->where('vehicle_id', (int) $id)->where('tenant_id', $tenantId)->delete('vehicle_routes');
+            $this->tenant_media_storage->delete($vehicle['vehicle_photo']);
+        }
+
+        $this->load->view('admin/vehicle/tenant_vehicle_delete', ['deleted' => $deleted]);
     }
 
 }

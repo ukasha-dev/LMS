@@ -2124,6 +2124,57 @@ final class AdminControllerTenantGateTest extends TestCase
         }
     }
 
+    public function testTenantVehicleCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        // vehicle_no is varchar(20) -- keep the ownership needle within that limit.
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/vehicle/tenantVehicleCreate',
+            ['vehicle_no' => 'IsoTestVehicle01', 'registration_number' => 'REG-001', 'driver_licence' => 'LIC-001'],
+            'Vehicle created with id',
+            'admin/vehicle/tenantVehicleEdit/',
+            'admin/vehicle/tenantVehicleDelete/',
+            'IsoTestVehicle01',
+            'Vehicle deleted.',
+            'No matching vehicle found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantVehiclePhotoUploadIsStoredUnderATenantScopedDirectory(): void
+    {
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        $pngBytes = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=');
+        $tmpFile = tempnam(sys_get_temp_dir(), 'admgate_vehiclephoto_') . '.png';
+        file_put_contents($tmpFile, $pngBytes);
+
+        $vehicleId = null;
+
+        try {
+            [$createStatus, $createBody] = $this->curlPostMultipart('admin/vehicle/tenantVehicleCreate', [
+                'vehicle_no' => 'IsoTestPhotoVeh01',
+            ], 'photo', $tmpFile);
+            $this->assertSame(200, $createStatus);
+            $this->assertMatchesRegularExpression('/Vehicle created with id (\d+)/', $createBody);
+            preg_match('/Vehicle created with id (\d+)/', $createBody, $matches);
+            $vehicleId = (int) $matches[1];
+
+            $this->assertMatchesRegularExpression('#tenant_25/vehicle_photo/\S+!test-photo\.png#', $createBody);
+
+            [$deleteStatus, ] = $this->curlGet('admin/vehicle/tenantVehicleDelete/' . $vehicleId);
+            $this->assertSame(200, $deleteStatus);
+            $vehicleId = null;
+        } finally {
+            @unlink($tmpFile);
+            if ($vehicleId) {
+                $pdo = new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', '');
+                $pdo->exec('DELETE FROM vehicle_routes WHERE vehicle_id = ' . (int) $vehicleId);
+                $pdo->exec('DELETE FROM vehicles WHERE id = ' . (int) $vehicleId);
+            }
+        }
+    }
+
     private function curlPost(string $path, array $fields): array
     {
         $ch = curl_init(self::BASE_URL . $path);
