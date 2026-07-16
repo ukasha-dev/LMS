@@ -2336,6 +2336,21 @@ final class AdminControllerTenantGateTest extends TestCase
         );
     }
 
+    public function testTenantPageCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/front/page/tenantPageCreate',
+            ['title' => 'Isolation Test Page', 'description' => 'x'],
+            'Page created with id',
+            'admin/front/page/tenantPageEdit/',
+            'admin/front/page/tenantPageDelete/',
+            'Isolation Test Page',
+            'Page deleted.',
+            'No matching page found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
     public function testTenantBookCreateEditDeleteAreIsolatedPerTenant(): void
     {
         $this->verifyTenantCrudCrossTenantIsolation(

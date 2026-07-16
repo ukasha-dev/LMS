@@ -152,4 +152,87 @@ class Page extends Admin_Controller
         redirect('admin/front/page');
     }
 
+    // Base entity only (front_cms_pages). front_cms_page_content (optional
+    // non-"standard" content category satellite, own FK to page id) is a
+    // separate joined feature, same split as Classes/class_sections.
+    public function tenantPageCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $this->form_validation->set_rules('title', 'Title', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('description', 'Description', 'trim|required');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/front/pages/tenant_page_create', ['created' => false]);
+
+            return;
+        }
+
+        $id = $this->cms_page_model->tenantScopedInsert('front_cms_pages', $tenantId, [
+            'title'            => $this->input->post('title'),
+            'description'      => (string) $this->input->post('description'),
+            'type'             => 'page',
+            'sidebar'          => $this->input->post('sidebar') ? 1 : 0,
+            'meta_title'       => (string) $this->input->post('meta_title'),
+            'meta_keyword'     => (string) $this->input->post('meta_keywords'),
+            'meta_description' => (string) $this->input->post('meta_description'),
+            'feature_image'    => (string) $this->input->post('image'),
+        ]);
+
+        $this->load->view('admin/front/pages/tenant_page_create', ['created' => true, 'id' => $id]);
+    }
+
+    public function tenantPageEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $page = $this->cms_page_model->tenantScopedFind('front_cms_pages', $tenantId, (int) $id);
+        if (!$page) {
+            show_404();
+
+            return;
+        }
+
+        if ($this->input->method() === 'post') {
+            $this->form_validation->set_rules('title', 'Title', 'trim|required|xss_clean');
+            $this->form_validation->set_rules('description', 'Description', 'trim|required');
+
+            if ($this->form_validation->run() !== false) {
+                $this->cms_page_model->tenantScopedUpdate('front_cms_pages', $tenantId, (int) $id, [
+                    'title'       => $this->input->post('title'),
+                    'description' => (string) $this->input->post('description'),
+                ]);
+                $page = $this->cms_page_model->tenantScopedFind('front_cms_pages', $tenantId, (int) $id);
+            }
+        }
+
+        $this->load->view('admin/front/pages/tenant_page_edit', ['page' => $page]);
+    }
+
+    public function tenantPageDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $deleted = $this->cms_page_model->tenantScopedDelete('front_cms_pages', $tenantId, (int) $id);
+        $this->load->view('admin/front/pages/tenant_page_delete', ['deleted' => $deleted]);
+    }
+
 }
