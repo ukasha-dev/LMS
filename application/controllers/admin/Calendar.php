@@ -354,6 +354,106 @@ class Calendar extends Admin_Controller
         echo json_encode($result);
     }
 
+    // event_for is polymorphic (a staff id, a role_id, or literal "0"
+    // depending on event_type) and is not a real DB FK -- treated as a
+    // plain scalar field here. role_id is the sole real FK.
+    public function tenantEventCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $this->form_validation->set_rules('event_title', 'Title', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('start_date', 'Start date', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('end_date', 'End date', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/calendar/tenant_event_create', ['created' => false]);
+
+            return;
+        }
+
+        $roleId = $this->input->post('role_id');
+        if ($roleId !== null && $roleId !== '') {
+            if (!$this->calendar_model->tenantScopedFind('roles', $tenantId, (int) $roleId)) {
+                show_404();
+
+                return;
+            }
+            $roleId = (int) $roleId;
+        } else {
+            $roleId = null;
+        }
+
+        $id = $this->calendar_model->tenantScopedInsert('events', $tenantId, [
+            'event_title'       => $this->input->post('event_title'),
+            'event_description' => (string) $this->input->post('event_description'),
+            'start_date'        => $this->input->post('start_date'),
+            'end_date'          => $this->input->post('end_date'),
+            'event_type'        => (string) $this->input->post('event_type') ?: 'public',
+            'event_color'       => (string) $this->input->post('event_color') ?: '#337ab7',
+            'event_for'         => (string) $this->input->post('event_for') ?: '0',
+            'role_id'           => $roleId,
+            'is_active'         => 'no',
+        ]);
+
+        $this->load->view('admin/calendar/tenant_event_create', ['created' => true, 'id' => $id]);
+    }
+
+    public function tenantEventEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $event = $this->calendar_model->tenantScopedFind('events', $tenantId, (int) $id);
+        if (!$event) {
+            show_404();
+
+            return;
+        }
+
+        if ($this->input->method() === 'post') {
+            $this->form_validation->set_rules('event_title', 'Title', 'trim|required|xss_clean');
+            $this->form_validation->set_rules('start_date', 'Start date', 'trim|required|xss_clean');
+            $this->form_validation->set_rules('end_date', 'End date', 'trim|required|xss_clean');
+
+            if ($this->form_validation->run() !== false) {
+                $this->calendar_model->tenantScopedUpdate('events', $tenantId, (int) $id, [
+                    'event_title'       => $this->input->post('event_title'),
+                    'event_description' => (string) $this->input->post('event_description'),
+                    'start_date'        => $this->input->post('start_date'),
+                    'end_date'          => $this->input->post('end_date'),
+                ]);
+                $event = $this->calendar_model->tenantScopedFind('events', $tenantId, (int) $id);
+            }
+        }
+
+        $this->load->view('admin/calendar/tenant_event_edit', ['event' => $event]);
+    }
+
+    public function tenantEventDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $deleted = $this->calendar_model->tenantScopedDelete('events', $tenantId, (int) $id);
+        $this->load->view('admin/calendar/tenant_event_delete', ['deleted' => $deleted]);
+    }
+
     public function markcomplete($id)
     {
         $status = $this->input->post("active");

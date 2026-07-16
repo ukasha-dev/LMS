@@ -2321,6 +2321,48 @@ final class AdminControllerTenantGateTest extends TestCase
         );
     }
 
+    public function testTenantEventCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/calendar/tenantEventCreate',
+            ['event_title' => 'Isolation Test Event', 'start_date' => '2026-01-01 09:00:00', 'end_date' => '2026-01-01 10:00:00'],
+            'Event created with id',
+            'admin/calendar/tenantEventEdit/',
+            'admin/calendar/tenantEventDelete/',
+            'Isolation Test Event',
+            'Event deleted.',
+            'No matching event found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantEventCreateRejectsForgedRoleId(): void
+    {
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        $otherCookieJar = tempnam(sys_get_temp_dir(), 'admgate_test_other_');
+        $realCookieJar = $this->cookieJar;
+        $this->cookieJar = $otherCookieJar;
+
+        try {
+            [$otherLoginStatus, ] = $this->curlPostPilotLoginAs(26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!');
+            $this->assertContains($otherLoginStatus, [200, 302, 303, 307]);
+
+            // Tenant 26 references tenant 25's real role #1 -- must 404.
+            [$forgeStatus, ] = $this->curlPost('admin/calendar/tenantEventCreate', [
+                'event_title' => 'Forged Event',
+                'start_date' => '2026-01-01 09:00:00',
+                'end_date' => '2026-01-01 10:00:00',
+                'role_id' => 1,
+            ]);
+            $this->assertSame(404, $forgeStatus, 'referencing another tenant role_id must be rejected');
+        } finally {
+            $this->cookieJar = $realCookieJar;
+            @unlink($otherCookieJar);
+        }
+    }
+
     public function testTenantStudentTimelineCreateEditDeleteAreIsolatedPerTenant(): void
     {
         $this->verifyTenantCrudCrossTenantIsolation(

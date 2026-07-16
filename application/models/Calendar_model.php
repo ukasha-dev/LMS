@@ -1,6 +1,6 @@
 <?php
 
-class Calendar_model extends CI_Model
+class Calendar_model extends MY_Model
 {
 
     public function __construct()
