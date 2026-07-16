@@ -3035,6 +3035,21 @@ final class AdminControllerTenantGateTest extends TestCase
         }
     }
 
+    public function testTenantFrontMenuCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/front/menus/tenantFrontMenuCreate',
+            ['menu' => 'Isolation Test Menu', 'description' => 'x'],
+            'Menu created with id',
+            'admin/front/menus/tenantFrontMenuEdit/',
+            'admin/front/menus/tenantFrontMenuDelete/',
+            'Isolation Test Menu',
+            'Menu deleted.',
+            'No matching menu found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
     public function testTenantBookCreateEditDeleteAreIsolatedPerTenant(): void
     {
         $this->verifyTenantCrudCrossTenantIsolation(

@@ -221,4 +221,83 @@ class Menus extends Admin_Controller
         redirect('admin/front/menus');
     }
 
+    // Base entity only (front_cms_menus, top-level menu container name).
+    // front_cms_menu_items (self-referencing parent_id tree + whole-tree
+    // updateMenu() batch reorder) is a materially different shape -- a
+    // tree structure, not a flat list -- and is deliberately left out of
+    // scope, same reasoning applied to any tree/batch-reorder feature this
+    // migration has encountered. Does not cascade-delete
+    // front_cms_menu_items (legacy removeBySlug() doesn't either).
+    public function tenantFrontMenuCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $this->form_validation->set_rules('menu', 'Menu', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/front/menus/tenant_menu_create', ['created' => false]);
+
+            return;
+        }
+
+        $id = $this->cms_menu_model->tenantScopedInsert('front_cms_menus', $tenantId, [
+            'menu'        => $this->input->post('menu'),
+            'description' => (string) $this->input->post('description'),
+        ]);
+
+        $this->load->view('admin/front/menus/tenant_menu_create', ['created' => true, 'id' => $id]);
+    }
+
+    public function tenantFrontMenuEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $menu = $this->cms_menu_model->tenantScopedFind('front_cms_menus', $tenantId, (int) $id);
+        if (!$menu) {
+            show_404();
+
+            return;
+        }
+
+        if ($this->input->method() === 'post') {
+            $this->form_validation->set_rules('menu', 'Menu', 'trim|required|xss_clean');
+
+            if ($this->form_validation->run() !== false) {
+                $this->cms_menu_model->tenantScopedUpdate('front_cms_menus', $tenantId, (int) $id, [
+                    'menu'        => $this->input->post('menu'),
+                    'description' => (string) $this->input->post('description'),
+                ]);
+                $menu = $this->cms_menu_model->tenantScopedFind('front_cms_menus', $tenantId, (int) $id);
+            }
+        }
+
+        $this->load->view('admin/front/menus/tenant_menu_edit', ['menu' => $menu]);
+    }
+
+    public function tenantFrontMenuDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $deleted = $this->cms_menu_model->tenantScopedDelete('front_cms_menus', $tenantId, (int) $id);
+        $this->load->view('admin/front/menus/tenant_menu_delete', ['deleted' => $deleted]);
+    }
+
 }

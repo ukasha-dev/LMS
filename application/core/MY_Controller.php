@@ -146,6 +146,7 @@ class Admin_Controller extends MY_Controller
                 'itemstock' => ['tenantitemstockcreate', 'tenantitemstockedit', 'tenantitemstockdelete'],
                 'onlinestudent' => ['tenantonlinestudentedit', 'tenantonlinestudentdelete'],
                 'schsettings' => ['tenantschsettingsget', 'tenantschsettingsupdate'],
+                'menus' => ['tenantfrontmenucreate', 'tenantfrontmenuedit', 'tenantfrontmenudelete'],
             ];
             if (!isset($allowedTenantRoutes[$activeController]) || !in_array($activeMethod, $allowedTenantRoutes[$activeController], true)) {
                 show_404();
