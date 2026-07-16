@@ -2468,6 +2468,21 @@ final class AdminControllerTenantGateTest extends TestCase
         }
     }
 
+    public function testTenantEventsCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/front/events/tenantEventsCreate',
+            ['title' => 'Isolation Test Front Event', 'start_date' => '2026-01-01', 'end_date' => '2026-01-02', 'description' => 'x'],
+            'Event created with id',
+            'admin/front/events/tenantEventsEdit/',
+            'admin/front/events/tenantEventsDelete/',
+            'Isolation Test Front Event',
+            'Front CMS event deleted.',
+            'No matching front CMS event found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
     public function testTenantBookCreateEditDeleteAreIsolatedPerTenant(): void
     {
         $this->verifyTenantCrudCrossTenantIsolation(

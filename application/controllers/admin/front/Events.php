@@ -208,4 +208,97 @@ class Events extends Admin_Controller
         redirect('admin/front/events');
     }
 
+    // Base entity only (front_cms_programs, type=events). The optional
+    // photo-gallery sub-feature (front_cms_program_photos, ajaxupload/
+    // removeImage) is a separate joined feature, same split as
+    // Notice/Page/Classes.
+    public function tenantEventsCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $this->form_validation->set_rules('title', 'Title', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('start_date', 'Start Date', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('end_date', 'End Date', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('description', 'Description', 'trim|required');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/front/events/tenant_events_create', ['created' => false]);
+
+            return;
+        }
+
+        $id = $this->cms_program_model->tenantScopedInsert('front_cms_programs', $tenantId, [
+            'type'             => 'events',
+            'title'            => $this->input->post('title'),
+            'description'      => (string) $this->input->post('description'),
+            'event_start'      => $this->input->post('start_date'),
+            'event_end'        => $this->input->post('end_date'),
+            'event_venue'      => (string) $this->input->post('venue'),
+            'sidebar'          => $this->input->post('sidebar') ? 1 : 0,
+            'meta_title'       => (string) $this->input->post('meta_title'),
+            'meta_keyword'     => (string) $this->input->post('meta_keywords'),
+            'meta_description' => (string) $this->input->post('meta_description'),
+            'feature_image'    => (string) $this->input->post('image'),
+        ]);
+
+        $this->load->view('admin/front/events/tenant_events_create', ['created' => true, 'id' => $id]);
+    }
+
+    public function tenantEventsEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $event = $this->cms_program_model->tenantScopedFind('front_cms_programs', $tenantId, (int) $id);
+        if (!$event) {
+            show_404();
+
+            return;
+        }
+
+        if ($this->input->method() === 'post') {
+            $this->form_validation->set_rules('title', 'Title', 'trim|required|xss_clean');
+            $this->form_validation->set_rules('start_date', 'Start Date', 'trim|required|xss_clean');
+            $this->form_validation->set_rules('end_date', 'End Date', 'trim|required|xss_clean');
+            $this->form_validation->set_rules('description', 'Description', 'trim|required');
+
+            if ($this->form_validation->run() !== false) {
+                $this->cms_program_model->tenantScopedUpdate('front_cms_programs', $tenantId, (int) $id, [
+                    'title'       => $this->input->post('title'),
+                    'description' => (string) $this->input->post('description'),
+                    'event_start' => $this->input->post('start_date'),
+                    'event_end'   => $this->input->post('end_date'),
+                ]);
+                $event = $this->cms_program_model->tenantScopedFind('front_cms_programs', $tenantId, (int) $id);
+            }
+        }
+
+        $this->load->view('admin/front/events/tenant_events_edit', ['event' => $event]);
+    }
+
+    public function tenantEventsDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $deleted = $this->cms_program_model->tenantScopedDelete('front_cms_programs', $tenantId, (int) $id);
+        $this->load->view('admin/front/events/tenant_events_delete', ['deleted' => $deleted]);
+    }
+
 }
