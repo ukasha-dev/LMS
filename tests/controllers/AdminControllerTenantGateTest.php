@@ -2549,6 +2549,51 @@ final class AdminControllerTenantGateTest extends TestCase
         }
     }
 
+    public function testTenantApproveLeaveCreateEditDeleteAreIsolatedPerTenant(): void
+    {
+        $this->verifyTenantCrudCrossTenantIsolation(
+            'admin/approve_leave/tenantApproveLeaveCreate',
+            [
+                'student_session_id' => 312, 'apply_date' => '2026-01-01',
+                'from_date' => '2026-01-02', 'to_date' => '2026-01-03',
+                'reason' => 'Isolation Test Leave Reason',
+            ],
+            'Leave request created with id',
+            'admin/approve_leave/tenantApproveLeaveEdit/',
+            'admin/approve_leave/tenantApproveLeaveDelete/',
+            'Isolation Test Leave Reason',
+            'Leave request deleted.',
+            'No matching leave request found for this tenant.',
+            26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!'
+        );
+    }
+
+    public function testTenantApproveLeaveCreateRejectsForgedStudentSessionId(): void
+    {
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        $otherCookieJar = tempnam(sys_get_temp_dir(), 'admgate_test_other_');
+        $realCookieJar = $this->cookieJar;
+        $this->cookieJar = $otherCookieJar;
+
+        try {
+            [$otherLoginStatus, ] = $this->curlPostPilotLoginAs(26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!');
+            $this->assertContains($otherLoginStatus, [200, 302, 303, 307]);
+
+            // Tenant 26 references tenant 25's real student_session #312 -- must 404.
+            [$forgeStatus, ] = $this->curlPost('admin/approve_leave/tenantApproveLeaveCreate', [
+                'student_session_id' => 312, 'apply_date' => '2026-01-01',
+                'from_date' => '2026-01-02', 'to_date' => '2026-01-03',
+                'reason' => 'Forged Leave Reason',
+            ]);
+            $this->assertSame(404, $forgeStatus, 'referencing another tenant student_session_id must be rejected');
+        } finally {
+            $this->cookieJar = $realCookieJar;
+            @unlink($otherCookieJar);
+        }
+    }
+
     public function testTenantBookCreateEditDeleteAreIsolatedPerTenant(): void
     {
         $this->verifyTenantCrudCrossTenantIsolation(

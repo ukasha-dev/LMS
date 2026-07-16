@@ -11,6 +11,7 @@ class approve_leave extends Admin_Controller
     {
         parent::__construct();
         $this->load->library('media_storage');
+        $this->load->library('tenant_media_storage');
         $this->sch_setting_detail = $this->setting_model->getSetting();
     }
 
@@ -273,6 +274,137 @@ class approve_leave extends Admin_Controller
         }
         return true;
 
+    }
+
+    // Base entity only (student_applyleave). request_type is hardcoded to
+    // '1' (self-apply), matching legacy add(). status/approve_by are left
+    // at their pending defaults on create -- approving/rejecting is a
+    // separate action (tenantApproveLeaveEdit) that ports the real
+    // class-teacher/subject-teacher authorization check legacy status()/
+    // remove_leave() perform, since that check is core to the approve
+    // action itself, not a side-effect to defer.
+    public function tenantApproveLeaveCreate()
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $this->form_validation->set_rules('student_session_id', 'Student', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('apply_date', 'Apply Date', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('from_date', 'From Date', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('to_date', 'To Date', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('reason', 'Reason', 'trim|required|xss_clean');
+
+        if ($this->input->method() !== 'post' || $this->form_validation->run() === false) {
+            $this->load->view('admin/approve_leave/tenant_approve_leave_create', ['created' => false]);
+
+            return;
+        }
+
+        $studentSessionId = (int) $this->input->post('student_session_id');
+        if (!$this->apply_leave_model->tenantScopedFind('student_session', $tenantId, $studentSessionId)) {
+            show_404();
+
+            return;
+        }
+
+        $id = $this->apply_leave_model->tenantScopedInsert('student_applyleave', $tenantId, [
+            'student_session_id' => $studentSessionId,
+            'apply_date'         => $this->input->post('apply_date'),
+            'from_date'          => $this->input->post('from_date'),
+            'to_date'            => $this->input->post('to_date'),
+            'reason'             => $this->input->post('reason'),
+            'request_type'       => 1,
+            'status'             => 0,
+            'docs'               => $this->tenant_media_storage->upload('userfile', $tenantId, 'student_leavedocuments') ?: '',
+        ]);
+
+        $this->load->view('admin/approve_leave/tenant_approve_leave_create', ['created' => true, 'id' => $id]);
+    }
+
+    // Approve/reject action, mirrors legacy status(). Ports canApproveLeave's
+    // class-teacher/subject-teacher authorization for role_id==2 staff, but
+    // sources class_id/section_id from the tenant-verified student_session
+    // row instead of trusting raw POST (legacy trusts POST directly, which
+    // is safe only under the old per-tenant-database isolation and would be
+    // a cross-tenant class_id/section_id spoofing vector here).
+    public function tenantApproveLeaveEdit($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $leave = $this->apply_leave_model->tenantScopedFind('student_applyleave', $tenantId, (int) $id);
+        if (!$leave) {
+            show_404();
+
+            return;
+        }
+
+        if ($this->input->method() === 'post') {
+            $userdata = $this->customlib->getUserData();
+            if (isset($userdata['role_id']) && $userdata['role_id'] == 2 && $userdata['class_teacher'] == 'yes') {
+                $session = $this->apply_leave_model->tenantScopedFind('student_session', $tenantId, (int) $leave['student_session_id']);
+                if (!$session || !$this->apply_leave_model->canApproveLeave($userdata['id'], $session['class_id'], $session['section_id'])) {
+                    show_404();
+
+                    return;
+                }
+            }
+
+            $status = (int) $this->input->post('status');
+            $this->apply_leave_model->tenantScopedUpdate('student_applyleave', $tenantId, (int) $id, [
+                'status'       => $status,
+                'approve_by'   => $status === 1 ? (int) $this->customlib->getStaffID() : 0,
+                'approve_date' => date('Y-m-d'),
+            ]);
+            $leave = $this->apply_leave_model->tenantScopedFind('student_applyleave', $tenantId, (int) $id);
+        }
+
+        $this->load->view('admin/approve_leave/tenant_approve_leave_edit', ['leave' => $leave]);
+    }
+
+    public function tenantApproveLeaveDelete($id)
+    {
+        $tenantId = $this->session->userdata('admin_tenant_id');
+        if (!$tenantId) {
+            show_404();
+
+            return;
+        }
+        $tenantId = (int) $tenantId;
+
+        $leave = $this->apply_leave_model->tenantScopedFind('student_applyleave', $tenantId, (int) $id);
+        if (!$leave) {
+            $this->load->view('admin/approve_leave/tenant_approve_leave_delete', ['deleted' => false]);
+
+            return;
+        }
+
+        $userdata = $this->customlib->getUserData();
+        if (isset($userdata['role_id']) && $userdata['role_id'] == 2 && $userdata['class_teacher'] == 'yes') {
+            $session = $this->apply_leave_model->tenantScopedFind('student_session', $tenantId, (int) $leave['student_session_id']);
+            if (!$session || !$this->apply_leave_model->canApproveLeave($userdata['id'], $session['class_id'], $session['section_id'])) {
+                show_404();
+
+                return;
+            }
+        }
+
+        $deleted = $this->apply_leave_model->tenantScopedDelete('student_applyleave', $tenantId, (int) $id);
+        if ($deleted && !empty($leave['docs'])) {
+            $this->tenant_media_storage->delete($leave['docs']);
+        }
+
+        $this->load->view('admin/approve_leave/tenant_approve_leave_delete', ['deleted' => $deleted]);
     }
 
 }
