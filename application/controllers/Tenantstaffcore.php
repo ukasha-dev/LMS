@@ -18,10 +18,16 @@ if (!defined('BASEPATH')) {
 //  - staffid_auto_insert's auto-numbering reads Staff_model::lastRecord()
 //    (globally last staff row, ORDER BY id DESC, no tenant filter) and
 //    increments its numeric suffix -- a second tenant's first hire would
-//    continue the first tenant's sequence instead of starting fresh. Auto-
-//    numbering is DEFERRED entirely here (not silently ported broken):
-//    this route always requires an explicit, tenant-scoped-unique
-//    employee_id.
+//    continue the first tenant's sequence instead of starting fresh.
+//    Auto-numbering IS offered here, but deliberately not as a port of the
+//    legacy mechanism: the legacy scheme reads its prefix/digit-count from
+//    `sch_settings`, which today only has a row for tenant 25 (5 of 6
+//    tenants have none) -- porting it as-is would work for one tenant and
+//    404/misbehave for the rest. Instead, employee_id is optional; when
+//    omitted, a fixed "STAFF-" prefix + a sequence computed purely from
+//    this tenant's own existing `staff` rows is generated, so every
+//    tenant's sequence starts at 1 independently regardless of what any
+//    other tenant (or a missing settings row) has.
 //
 // Also DEFERRED: file uploads (photo/documents), payroll/leave-type
 // assignment, custom fields. staff logins are a non-issue for delete here
@@ -73,6 +79,27 @@ class Tenantstaffcore extends Admin_Controller
         return $this->db->get('staff')->num_rows() > 0;
     }
 
+    private const AUTO_EMPLOYEE_ID_PREFIX = 'STAFF-';
+
+    // Tenant-scoped sequence: only ever looks at THIS tenant's own staff
+    // rows, so it can never continue another tenant's numbering the way
+    // Staff_model::lastRecord() does today.
+    private function generateEmployeeId(int $tenantId): string
+    {
+        $lastRow = $this->db->where('tenant_id', $tenantId)
+            ->like('employee_id', self::AUTO_EMPLOYEE_ID_PREFIX, 'after')
+            ->order_by('id', 'DESC')
+            ->limit(1)
+            ->get('staff')->row_array();
+
+        $nextNumber = 1;
+        if ($lastRow) {
+            $nextNumber = ((int) str_replace(self::AUTO_EMPLOYEE_ID_PREFIX, '', $lastRow['employee_id'])) + 1;
+        }
+
+        return self::AUTO_EMPLOYEE_ID_PREFIX . str_pad((string) $nextNumber, 4, '0', STR_PAD_LEFT);
+    }
+
     public function tenantStaffCoreCreate()
     {
         $tenantId = $this->tenantId();
@@ -83,7 +110,7 @@ class Tenantstaffcore extends Admin_Controller
         }
         $tenantId = (int) $tenantId;
 
-        $this->form_validation->set_rules('employee_id', 'Employee Id', 'trim|required|xss_clean');
+        $this->form_validation->set_rules('employee_id', 'Employee Id', 'trim|xss_clean');
         $this->form_validation->set_rules('name', 'Name', 'trim|required|xss_clean');
         $this->form_validation->set_rules('email', 'Email', 'trim|required|valid_email|xss_clean');
 
@@ -93,7 +120,7 @@ class Tenantstaffcore extends Admin_Controller
             return;
         }
 
-        $employeeId    = $this->input->post('employee_id');
+        $employeeId    = $this->input->post('employee_id') ?: $this->generateEmployeeId($tenantId);
         $email         = $this->input->post('email');
         $departmentId  = $this->input->post('department');
         $designationId = $this->input->post('designation');
@@ -139,7 +166,7 @@ class Tenantstaffcore extends Admin_Controller
             ]);
         }
 
-        $this->load->view('admin/staff/tenant_staff_core_create', ['created' => true, 'id' => $staffId]);
+        $this->load->view('admin/staff/tenant_staff_core_create', ['created' => true, 'id' => $staffId, 'employeeId' => $employeeId]);
     }
 
     public function tenantStaffCoreEdit($id)

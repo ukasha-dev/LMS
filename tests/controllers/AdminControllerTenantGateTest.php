@@ -1837,6 +1837,61 @@ final class AdminControllerTenantGateTest extends TestCase
         $this->assertSame(0, $stray, 'the forged request must not have created any row at all');
     }
 
+    public function testTenantStaffCoreAutoGeneratesEmployeeIdAsAnIndependentSequencePerTenant(): void
+    {
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        try {
+            // Tenant 25's first auto-generated hire (this pass) starts the
+            // "STAFF-" sequence fresh -- none of its 18 real staff use this
+            // prefix, so this must be STAFF-0001.
+            [$firstStatus, $firstBody] = $this->curlPost('tenantstaffcore/tenantStaffCoreCreate', [
+                'name' => 'Isolation Test Auto Staff One',
+                'email' => 'isotest.autostaff1@example.test',
+            ]);
+            $this->assertSame(200, $firstStatus);
+            $this->assertStringContainsString('employee_id: STAFF-0001', $firstBody);
+
+            // A second auto-generated hire for the SAME tenant must increment.
+            [$secondStatus, $secondBody] = $this->curlPost('tenantstaffcore/tenantStaffCoreCreate', [
+                'name' => 'Isolation Test Auto Staff Two',
+                'email' => 'isotest.autostaff2@example.test',
+            ]);
+            $this->assertSame(200, $secondStatus);
+            $this->assertStringContainsString('employee_id: STAFF-0002', $secondBody);
+
+            $otherCookieJar = tempnam(sys_get_temp_dir(), 'admgate_test_other_');
+            $realCookieJar = $this->cookieJar;
+            $this->cookieJar = $otherCookieJar;
+
+            try {
+                [$otherLoginStatus, ] = $this->curlPostPilotLoginAs(26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!');
+                $this->assertContains($otherLoginStatus, [200, 302, 303, 307]);
+
+                // Tenant 26's own first auto-generated hire must start its OWN
+                // sequence at STAFF-0001 too -- proving it never continues
+                // tenant 25's sequence (the exact legacy lastRecord() bug).
+                [$otherStatus, $otherBody] = $this->curlPost('tenantstaffcore/tenantStaffCoreCreate', [
+                    'name' => 'Isolation Test Auto Staff Tenant26',
+                    'email' => 'isotest.autostaff.t26@example.test',
+                ]);
+                $this->assertSame(200, $otherStatus);
+                $this->assertStringContainsString('employee_id: STAFF-0001', $otherBody, 'tenant 26 must start its own independent sequence, not continue tenant 25\'s');
+            } finally {
+                $this->cookieJar = $realCookieJar;
+                @unlink($otherCookieJar);
+            }
+        } finally {
+            $pdo = new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', '');
+            $strayIds = $pdo->query("SELECT id FROM staff WHERE employee_id LIKE 'STAFF-%'")->fetchAll(PDO::FETCH_COLUMN);
+            foreach ($strayIds as $strayId) {
+                $pdo->exec('DELETE FROM staff_roles WHERE staff_id = ' . (int) $strayId);
+                $pdo->exec('DELETE FROM staff WHERE id = ' . (int) $strayId);
+            }
+        }
+    }
+
     private function curlPost(string $path, array $fields): array
     {
         $ch = curl_init(self::BASE_URL . $path);

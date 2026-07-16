@@ -4,12 +4,13 @@
 <body>
 <?php if ($created): ?>
 <p>Staff created with id <?php echo (int) $id; ?>.</p>
+<p>employee_id: <?php echo htmlspecialchars((string) $employeeId); ?></p>
 <?php elseif (!empty($duplicate)): ?>
 <p>Employee id or email already exists for this tenant.</p>
 <?php else: ?>
 <h1>Create Staff</h1>
 <form method="post">
-    <input type="text" name="employee_id" placeholder="Employee Id">
+    <input type="text" name="employee_id" placeholder="Employee Id (optional, auto-generated if left blank)">
     <input type="text" name="name" placeholder="Name">
     <input type="text" name="surname" placeholder="Surname">
     <input type="text" name="email" placeholder="Email">
