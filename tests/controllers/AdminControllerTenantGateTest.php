@@ -2404,6 +2404,70 @@ final class AdminControllerTenantGateTest extends TestCase
         }
     }
 
+    public function testTenantBannerAddDeleteIsolatedAndRejectsForgedMediaId(): void
+    {
+        [$loginStatus, ] = $this->curlPostPilotLogin();
+        $this->assertContains($loginStatus, [200, 302, 303, 307]);
+
+        $pngBytes = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=');
+        $tmpFile = tempnam(sys_get_temp_dir(), 'admgate_bannermedia_') . '.png';
+        file_put_contents($tmpFile, $pngBytes);
+
+        $mediaId = null;
+        $bannerId = null;
+
+        try {
+            [$mediaStatus, $mediaBody] = $this->curlPostMultipart('admin/front/media/tenantMediaCreate', [], 'media_file', $tmpFile);
+            $this->assertSame(200, $mediaStatus);
+            preg_match('/Media created with id (\d+)/', $mediaBody, $matches);
+            $mediaId = (int) $matches[1];
+
+            [$createStatus, $createBody] = $this->curlPost('admin/front/banner/tenantBannerAdd', ['content_id' => $mediaId]);
+            $this->assertSame(200, $createStatus);
+            $this->assertMatchesRegularExpression('/Banner link created with id (\d+)/', $createBody);
+            preg_match('/Banner link created with id (\d+)/', $createBody, $matches);
+            $bannerId = (int) $matches[1];
+
+            $otherCookieJar = tempnam(sys_get_temp_dir(), 'admgate_test_other_');
+            $realCookieJar = $this->cookieJar;
+            $this->cookieJar = $otherCookieJar;
+
+            try {
+                [$otherLoginStatus, ] = $this->curlPostPilotLoginAs(26, 'khushbakhtfarooq7@gmail.com', 'TestVerify123!');
+                $this->assertContains($otherLoginStatus, [200, 302, 303, 307]);
+
+                // Tenant 26 references tenant 25's real media item -- must 404.
+                [$forgeStatus, ] = $this->curlPost('admin/front/banner/tenantBannerAdd', ['content_id' => $mediaId]);
+                $this->assertSame(404, $forgeStatus, 'referencing another tenant media_gallery_id must be rejected');
+
+                [$crossDeleteStatus, $crossDeleteBody] = $this->curlGet('admin/front/banner/tenantBannerDelete/' . $bannerId);
+                $this->assertSame(200, $crossDeleteStatus);
+                $this->assertStringContainsString('No matching banner link found for this tenant.', $crossDeleteBody);
+            } finally {
+                $this->cookieJar = $realCookieJar;
+                @unlink($otherCookieJar);
+            }
+
+            $pdo = new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', '');
+            $stillThere = (int) $pdo->query('SELECT COUNT(*) FROM front_cms_program_photos WHERE id = ' . $bannerId)->fetchColumn();
+            $this->assertSame(1, $stillThere, 'the row must still exist after the other tenant\'s attempted cross-tenant delete');
+
+            [$deleteStatus, $deleteBody] = $this->curlGet('admin/front/banner/tenantBannerDelete/' . $bannerId);
+            $this->assertSame(200, $deleteStatus);
+            $this->assertStringContainsString('Banner link deleted.', $deleteBody);
+            $bannerId = null;
+        } finally {
+            @unlink($tmpFile);
+            $pdo = new PDO('mysql:host=127.0.0.1;dbname=school_saas;charset=utf8mb4', 'root', '');
+            if ($bannerId !== null) {
+                $pdo->exec('DELETE FROM front_cms_program_photos WHERE id = ' . $bannerId);
+            }
+            if ($mediaId !== null) {
+                $pdo->exec('DELETE FROM front_cms_media_gallery WHERE id = ' . $mediaId);
+            }
+        }
+    }
+
     public function testTenantBookCreateEditDeleteAreIsolatedPerTenant(): void
     {
         $this->verifyTenantCrudCrossTenantIsolation(
