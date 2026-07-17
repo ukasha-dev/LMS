@@ -121,4 +121,57 @@ final class SmartSchoolStaffNeutralizerTest extends TestCase
         $sentinel = 'NEUTRALIZED-BY-SMART-SCHOOL-CLEANUP-DO-NOT-USE';
         $this->assertLessThanOrEqual(250, strlen($sentinel));
     }
+
+    public function testCaseDifferingPasswordIsNotTreatedAsCollision(): void
+    {
+        // Task 1 review finding: staff.password across all 6 live school
+        // databases uses collation utf8_general_ci (case-insensitive),
+        // confirmed via a live information_schema.COLUMNS query. Without an
+        // explicit binary comparison, findCollisions() would treat two
+        // hashes differing only in letter case as colliding -- not the
+        // byte-identical matching the plan's Global Constraints require.
+        $this->smartSchoolPdo->exec("INSERT INTO staff (employee_id, password, is_active) VALUES ('E12', 'ABC123hash', 0)");
+        $this->schoolAPdo->exec("INSERT INTO staff (employee_id, password, is_active) VALUES ('E12', 'abc123hash', 1)");
+
+        $result = $this->neutralizer()->dryRun();
+
+        $this->assertSame(0, $result['count']);
+    }
+
+    public function testExecuteLiveMutatesOnlyQualifyingRows(): void
+    {
+        $this->smartSchoolPdo->exec("INSERT INTO staff (employee_id, password, is_active) VALUES ('E8', 'shared-hash', 0)");
+        $this->schoolAPdo->exec("INSERT INTO staff (employee_id, password, is_active) VALUES ('E8', 'shared-hash', 1)");
+        $this->smartSchoolPdo->exec("INSERT INTO staff (employee_id, password, is_active) VALUES ('E9', 'own-hash', 0)");
+
+        $result = $this->neutralizer()->executeLive();
+
+        $this->assertSame(1, $result['updated']);
+
+        $mutated = $this->smartSchoolPdo->query("SELECT password FROM staff WHERE employee_id = 'E8'")->fetch(PDO::FETCH_ASSOC);
+        $this->assertSame('NEUTRALIZED-BY-SMART-SCHOOL-CLEANUP-DO-NOT-USE', $mutated['password']);
+
+        $untouched = $this->smartSchoolPdo->query("SELECT password FROM staff WHERE employee_id = 'E9'")->fetch(PDO::FETCH_ASSOC);
+        $this->assertSame('own-hash', $untouched['password']);
+    }
+
+    public function testExecuteLiveNeverTouchesOtherSchoolTables(): void
+    {
+        $this->smartSchoolPdo->exec("INSERT INTO staff (employee_id, password, is_active) VALUES ('E10', 'shared-hash', 0)");
+        $this->schoolAPdo->exec("INSERT INTO staff (employee_id, password, is_active) VALUES ('E10', 'shared-hash', 1)");
+
+        $this->neutralizer()->executeLive();
+
+        $schoolARow = $this->schoolAPdo->query("SELECT password FROM staff WHERE employee_id = 'E10'")->fetch(PDO::FETCH_ASSOC);
+        $this->assertSame('shared-hash', $schoolARow['password']);
+    }
+
+    public function testExecuteLiveOnZeroCandidatesUpdatesNothing(): void
+    {
+        $this->smartSchoolPdo->exec("INSERT INTO staff (employee_id, password, is_active) VALUES ('E11', 'own-hash', 0)");
+
+        $result = $this->neutralizer()->executeLive();
+
+        $this->assertSame(0, $result['updated']);
+    }
 }
