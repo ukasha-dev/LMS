@@ -1487,9 +1487,19 @@ made.
      using this shared credential falls through to the legacy fallback
      regardless of whether tenant 27 or tenant 29 is reached first in the
      loop, exactly as designed for the analogous `hamza.ali@kics.edu.pk`
-     case Stage 1 found. This is a data finding that extends the known
-     collision count, not a code defect — documented here the same way
-     Stage 1 documented its own original 93-collision finding.
+     case Stage 1 found. The final whole-stage review additionally
+     confirmed `smubshra@gmail.com` is a genuine staff row in BOTH
+     `nafay_campus` (tenant 27) and `salam_girls_school` (tenant 29)'s own
+     branch databases — so a hypothetical real-password login with this
+     credential would, after the ambiguity rejection, resolve via the
+     per-tenant legacy fallback to whichever of the two is checked first
+     in loop order (tenant 27, `branch_23`), not ambiguously to either;
+     this introduces no new capability beyond what the pre-stage legacy
+     loop already allowed for this credential, and is contingent on a
+     plaintext password nobody involved in this stage holds. This is a
+     data finding that extends the known collision count, not a code
+     defect — documented here the same way Stage 1 documented its own
+     original 93-collision finding.
 
      **Known cost, not a defect: per-login PDO connection count rose
      substantially.** Stages 1-2 opened at most 2 PDO connections per gate
