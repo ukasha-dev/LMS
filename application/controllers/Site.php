@@ -95,43 +95,48 @@ class Site extends Public_Controller
             }
             $setting_result        = $this->setting_model->get();
 
-            // --- REAL LOGIN GATE (Phase 4 Stage 1) ---
-            // Tenant 25 (al_hafeez_campus/branch_25) check, run BEFORE and
-            // completely independent of the legacy multi-branch loop
-            // below. school_saas is the authoritative password check;
-            // branch_25's own row (fetched directly here, not via the
-            // loop) is the fallback so a stale school_saas password can
-            // never lock a real user out. If either matches, we resolve
-            // directly to branch_25 and skip the legacy loop entirely for
-            // this login.
+            // --- REAL LOGIN GATE (Phase 4 Stage 1, extended Stage 3) ---
+            // Independent pre-loop check for 5 tenants (26, 27, 28, 29, 25 --
+            // deliberately checked in this order, not tenant_id order, so
+            // that tenant 25's already-proven credential succeeding proves
+            // the loop genuinely iterated past 4 other tenants first, not
+            // just "matched on the first try"), run BEFORE and completely
+            // independent of the legacy multi-branch loop below. Tenant 30
+            // (Smart School) is deliberately never in this list -- see the
+            // Phase 4 Stage 3 roadmap entry: it's the confirmed source of
+            // the cross-tenant password-hash contamination found in Stages
+            // 1-2, so its own cutover waits for a dedicated data-cleanup
+            // effort. school_saas is the authoritative password check per
+            // tenant; each tenant's own branch row (fetched directly here,
+            // not via the loop) is the fallback so a stale school_saas
+            // password can never lock a real user out. If any tenant
+            // matches, we resolve directly to that tenant's branch and skip
+            // the legacy loop entirely for this login. One tenant's
+            // connection failure logs and moves on to the next tenant,
+            // rather than aborting the whole gate. Never reassigns
+            // $this->db except via the swap below.
             //
-            // Why this can't live inside the legacy loop (discovered live
-            // during this stage's adversarial review, 2026-07-17, and
-            // NOT fixed here -- out of scope, pre-existing, affects all 6
-            // real schools, not just tenant 25): the loop's own
-            // email+password matching is unreliable once duplicate
-            // credentials exist across branch databases. Two real
-            // collisions were found live: (1) `school_saas_pilot` (a
-            // migration-infrastructure connection group, not a real
-            // school) sits in the same $db array the loop iterates,
-            // before any branch_* entry, and can match first;
-            // (2) `smart_school` (branch_20) contains byte-identical
-            // password hashes for a large fraction of at least 5 of the
-            // 6 real schools' real staff (93 cross-database collisions
-            // confirmed live across all 6 real school databases),
-            // consistent with smart_school having been used as an
-            // onboarding template that was never cleaned up in the
-            // schools cloned from it. Either collision can cause the
-            // legacy loop to match a DIFFERENT school's database before
-            // ever reaching the tenant a login is actually for. This
-            // block sidesteps that entire class of problem for tenant 25
-            // specifically by checking a tenant-scoped source first,
-            // rather than attempting to fix the loop's ordering (which
-            // cannot be done safely without investigating the same
-            // collision risk for the other 5 tenants, a separate,
-            // dedicated data-integrity investigation this stage does not
-            // attempt). Never reassigns $this->db.
+            // Why this can't live inside the legacy loop (see Stage 1's
+            // adversarial review, 2026-07-17, not fixed here -- out of
+            // scope, pre-existing, affects all 6 real schools): the loop's
+            // own email+password matching is unreliable once duplicate
+            // credentials exist across branch databases --
+            // `school_saas_pilot` and `smart_school` (branch_20) both
+            // precede every one of this stage's 5 branches in the same $db
+            // array the loop iterates, and smart_school carries
+            // byte-identical password hashes for a large fraction of real
+            // staff across all 6 real schools (93 cross-database collisions
+            // confirmed live). This block sidesteps that entire class of
+            // problem for these 5 tenants by checking a tenant-scoped
+            // source first.
             $found_group = 'default';
+            $realLoginTenants = [
+                26 => 'branch_24',
+                27 => 'branch_23',
+                28 => 'branch_22',
+                29 => 'branch_21',
+                25 => 'branch_25',
+            ];
             try {
                 require_once APPPATH . '../tools/multitenant/RealLoginGate.php';
                 include(APPPATH . 'config/database.php');
@@ -142,47 +147,55 @@ class Site extends Public_Controller
                     $realLoginDbConfig['password']
                 );
                 $realLoginPdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-
-                $branch25Config = $db['branch_25'] ?? null;
-                $branch25RowPassword = null;
-                if ($branch25Config) {
-                    $branch25Pdo = new PDO(
-                        'mysql:host=' . $branch25Config['hostname'] . ';dbname=' . $branch25Config['database'] . ';charset=utf8mb4',
-                        $branch25Config['username'],
-                        $branch25Config['password']
-                    );
-                    $branch25Pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-                    $branch25Stmt = $branch25Pdo->prepare('SELECT password FROM staff WHERE email = :email LIMIT 1');
-                    $branch25Stmt->execute(['email' => $login_post['email']]);
-                    $branch25Row = $branch25Stmt->fetch(PDO::FETCH_ASSOC);
-                    $branch25RowPassword = $branch25Row['password'] ?? null;
-                }
-
                 $realLoginGate = new RealLoginGate($realLoginPdo);
-                $gateResult = $realLoginGate->verify(
-                    $login_post['email'],
-                    $login_post['password'],
-                    25,
-                    [$this->enc_lib, 'passHashDyc'],
-                    function () use ($login_post, $branch25RowPassword) {
-                        return $branch25RowPassword !== null
-                            && $this->enc_lib->passHashDyc($login_post['password'], $branch25RowPassword);
+
+                foreach ($realLoginTenants as $realLoginTenantId => $realLoginBranchGroup) {
+                    try {
+                        $branchConfig = $db[$realLoginBranchGroup] ?? null;
+                        $branchRowPassword = null;
+                        if ($branchConfig) {
+                            $branchPdo = new PDO(
+                                'mysql:host=' . $branchConfig['hostname'] . ';dbname=' . $branchConfig['database'] . ';charset=utf8mb4',
+                                $branchConfig['username'],
+                                $branchConfig['password']
+                            );
+                            $branchPdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+                            $branchStmt = $branchPdo->prepare('SELECT password FROM staff WHERE email = :email LIMIT 1');
+                            $branchStmt->execute(['email' => $login_post['email']]);
+                            $branchRow = $branchStmt->fetch(PDO::FETCH_ASSOC);
+                            $branchRowPassword = $branchRow['password'] ?? null;
+                        }
+
+                        $gateResult = $realLoginGate->verify(
+                            $login_post['email'],
+                            $login_post['password'],
+                            $realLoginTenantId,
+                            [$this->enc_lib, 'passHashDyc'],
+                            function () use ($login_post, $branchRowPassword) {
+                                return $branchRowPassword !== null
+                                    && $this->enc_lib->passHashDyc($login_post['password'], $branchRowPassword);
+                            }
+                        );
+                        if ($gateResult['source'] === 'legacy') {
+                            log_message('error', '[RealLoginGate] PASSWORD_DRIFT_DETECTED tenant_id=' . $realLoginTenantId . ' email=' . $login_post['email']);
+                        }
+                        if ($gateResult['success']) {
+                            $found_group = $realLoginBranchGroup;
+                            break;
+                        }
+                    } catch (\Throwable $e) {
+                        log_message('error', '[RealLoginGate] EXCEPTION tenant_id=' . $realLoginTenantId . ' ' . $e->getMessage());
+                        continue;
                     }
-                );
-                if ($gateResult['source'] === 'legacy') {
-                    log_message('error', '[RealLoginGate] PASSWORD_DRIFT_DETECTED tenant_id=25 email=' . $login_post['email']);
-                }
-                if ($gateResult['success']) {
-                    $found_group = 'branch_25';
                 }
             } catch (\Throwable $e) {
-                log_message('error', '[RealLoginGate] EXCEPTION ' . $e->getMessage());
+                log_message('error', '[RealLoginGate] EXCEPTION setup ' . $e->getMessage());
                 // $found_group stays 'default'; the legacy loop below
                 // still runs completely normally as the fallback.
             }
             // --- END REAL LOGIN GATE ---
 
-            if ($found_group === 'branch_25') {
+            if ($found_group !== 'default') {
                 $CI =& get_instance();
                 $new_db = $CI->load->database($found_group, TRUE);
                 $CI->db->close();
