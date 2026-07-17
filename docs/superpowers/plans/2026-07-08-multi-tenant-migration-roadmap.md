@@ -1353,6 +1353,213 @@ made.
      redirects), and every other controller's data-access behavior remain
      completely untouched.
 
+   - **Stage 3 — Extend real login verification cutover to tenants 26-29**
+     — ✅ complete (2026-07-17, plan:
+     `2026-07-17-multi-tenant-phase4-stage3-extend-login-cutover-4-tenants.md`).
+     Direct sequel to Stages 1-2: extends BOTH already-shipped gates
+     (`RealLoginGate` for staff `login()`, `RealUserLoginGate` for
+     student/parent `userlogin()`) from tenant-25-only to also cover
+     tenants 26 (Al-Mateen/`branch_24`), 27 (Nafay/`branch_23`), 28 (Salam
+     Boys/`branch_22`), 29 (Salam Girls/`branch_21`) — **5 tenants total**.
+     Both gate classes (`tools/multitenant/RealLoginGate.php`,
+     `tools/multitenant/RealUserLoginGate.php`) remain **byte-for-byte
+     unchanged** this stage (confirmed via `git diff` across this stage's
+     two implementation commits) — only `Site.php`'s wiring in each
+     method's pre-loop gate block changed, from a single tenant-25 check to
+     a `foreach` over a small, hardcoded `{tenantId => branchGroup}` array.
+     Independently re-confirmed during Task 3: diffing `Site.php` between
+     the commit before Task 1 (`0aeecfdf`) and the end of Task 2
+     (`f1f1a67c`) shows exactly 2 hunk clusters (`login()`'s gate block +
+     its closing `if`, and `userlogin()`'s analogous pair) — nothing else
+     in the file changed — and the "MULTI BRANCH STAFF LOGIN FIX" and
+     "MULTI BRANCH STUDENT LOGIN FIX" legacy loop bodies, extracted and
+     diffed directly between those same two points, are empty diffs, i.e.
+     byte-for-byte identical.
+
+     **Approach A (sequential per-tenant loop, reusing `verify()`
+     unchanged) chosen over Approach B (a new tenant-agnostic
+     `resolveTenant()` method on each gate class).** Approach B would do
+     one query across all 5 tenants instead of up to 5 per-tenant queries —
+     fewer connections in the common case — but it means modifying two
+     already-shipped, already-independently-reviewed production classes for
+     a performance gain that isn't required at this scale. Approach A
+     reuses `verify()` completely unchanged; zero regression risk to
+     Stage 1/2's already-proven code. The one efficiency measure Approach A
+     does take: the one-time `school_saas_pilot` PDO connection and the
+     single gate instance are built ONCE, outside the per-tenant loop, not
+     once per tenant — 1 `school_saas` connection total regardless of how
+     many of the 5 tenants are checked, confirmed directly in the shipped
+     code for both `login()` and `userlogin()`.
+
+     **Tenant 30 (Smart School) is explicitly excluded from both loop
+     arrays, and confirmed to stay that way.** It's the confirmed source of
+     the cross-tenant password-hash contamination found live in Stage 1 (93
+     staff-row collisions) and Stage 2 (4 student-row collision pairs) —
+     giving Smart School its own cutover would mean trusting `school_saas`
+     as authoritative for the exact tenant whose "own" data legitimacy is
+     itself unclear. Deferred to a dedicated future data-cleanup effort.
+     Verified two ways: (1) `$realLoginTenants`/`$realUserLoginTenants`
+     literally never contain the key `30`; (2) a new integration test
+     (`testTenant30ShapedLoginAttemptFallsThroughToLegacyLoopUnaffected`)
+     confirms a smart_school-shaped login attempt renders the identical
+     "Invalid Username Or Password" failure text as any other non-matching
+     login — it reaches the untouched legacy loop exactly as it did before
+     this stage.
+
+     **Loop order is `[26, 27, 28, 29, 25]`, deliberately not tenant-id
+     order.** Tenant 25 already has a known-good, previously-proven live
+     credential (`rabiachauhan923@gmail.com` for staff,
+     `std113`/`7daq1b` for students — unused this stage, superseded by the
+     4 new tenants' own credentials below). Checking tenant 25 *last* means
+     its success can only be observed after the loop has already iterated
+     past 4 non-matching tenant checks first — proof that multi-tenant
+     iteration and short-circuit both genuinely work, not "matched on the
+     first try." This was directly exercised, not just argued: a
+     throwaway direct-class script (Task 3, not committed, deleted after
+     use) called `RealLoginGate::verify()` five times in the exact
+     `[26, 27, 28, 29, 25]` order with a wrong password for tenants 26-29
+     and tenant 25's real known-good credential last, and confirmed
+     `success=false` for all 4 prior tenants before `success=true,
+     source=school_saas` on the 5th call for tenant 25 — the same order,
+     the same gate, the same class the real controller uses.
+
+     **Direct-class proof (Task 3), split by population exactly as
+     planned:**
+     - **Student (all 4 new tenants, real success case, proven live):** a
+       throwaway script (not committed, deleted after use) constructed
+       `RealUserLoginGate` against the real `school_saas` PDO connection
+       and called `verify()` for each of the 4 known plaintext student
+       credentials (tenant 26/`std504`/`2wz2ic`, tenant 27/`std144`/
+       `6kr58l`, tenant 28/`std178`/`m7ytme`, tenant 29/`std1782`/
+       `00crqh`) — all 4 returned `['success' => true, 'source' =>
+       'school_saas']` exactly as expected, and a wrong password for each
+       of the same 4 identifiers correctly returned `['success' => false,
+       'source' => 'none']`. This is a genuine, live, real success-case
+       proof for all 4 new tenants' student login.
+     - **Staff (4 new tenants, wrong-password cascade only — NOT a full
+       success proof) plus tenant 25 (real success case):** a second
+       throwaway script (not committed, deleted after use) constructed
+       `RealLoginGate` against the same real connection and called
+       `verify()` for each of the 4 new tenants' known staff emails
+       (tenant 26/`khushbakhtfarooq7@gmail.com`, tenant 27/
+       `hajiryasatali@gmail.com`, tenant 28/`asadwali6@gmail.com`, tenant
+       29/`smubshra@gmail.com`) with a deliberately wrong password — all
+       4 returned `['success' => false, 'source' => 'none']`, proving the
+       row IS found (the email matches) and the bcrypt check correctly
+       rejects a wrong password, without ever needing or inventing a real
+       plaintext staff password for these 4 tenants. Tenant 25's
+       already-known-good credential (`rabiachauhan923@gmail.com`/
+       `TestVerify123!`) was then separately confirmed to still succeed via
+       `verify(..., 25, ...)`, both standalone and as the 5th call in the
+       `[26,27,28,29,25]`-order simulation described above.
+
+     **State plainly: a full live staff SUCCESS proof for tenants 26-29 was
+     NOT done, and this is intentional, not an oversight.** Unlike the
+     student credentials (plaintext, so a genuine live success call was
+     possible for all 4 new tenants), no plaintext password is known for
+     any of the 4 new tenants' bcrypt-hashed staff passwords — inventing
+     one or resetting a real user's live password was out of scope and
+     unsafe, and this project's standing safety constraint (never attempt a
+     real, successful login for any tenant, at any point) forecloses
+     testing it via HTTP either. The staff-side proof is honestly weaker
+     than the student-side proof: it proves the gate correctly finds each
+     tenant's row and correctly rejects a wrong password (real, live, safe)
+     plus proves the whole mechanism's real success path once, on tenant
+     25, after iterating past 4 non-matches — but it does NOT independently
+     establish that tenants 26-29's own real staff passwords would
+     actually succeed through the gate the way the student side does. Do
+     not read the two proofs as equivalent in strength.
+
+     **Data finding (not a code defect): `smubshra@gmail.com` collides
+     across THREE tenants, not one.** Live re-verification during Task 1
+     found `smubshra@gmail.com` (this stage's tenant-29 staff test email)
+     carries the IDENTICAL bcrypt hash under tenant_ids 27, 29, **and** 30
+     in `school_saas.staff` (`staff.id` 50, 86, and 216 respectively;
+     reconfirmed independently during Task 3 via a direct read-only query,
+     same three rows, same single distinct hash). This is the same
+     already-documented `smart_school` template-contamination pattern
+     Stage 1 found at scale (93 staff collisions) — now confirmed to also
+     directly involve two of THIS stage's own covered tenants (27 and 29),
+     not only tenant 30. `RealLoginGate`'s unmodified ambiguity guard
+     (`matchesUnderAnotherTenant()`, shipped in Stage 1, untouched since)
+     was independently traced by Task 1's review and correctly rejects
+     this specific 3-way collision as ambiguous — a genuine login attempt
+     using this shared credential falls through to the legacy fallback
+     regardless of whether tenant 27 or tenant 29 is reached first in the
+     loop, exactly as designed for the analogous `hamza.ali@kics.edu.pk`
+     case Stage 1 found. This is a data finding that extends the known
+     collision count, not a code defect — documented here the same way
+     Stage 1 documented its own original 93-collision finding.
+
+     **Known cost, not a defect: per-login PDO connection count rose
+     substantially.** Stages 1-2 opened at most 2 PDO connections per gate
+     per login attempt (1 `school_saas_pilot`, always built once; 1
+     tenant-25 branch fallback, only when the primary check needed it).
+     Extending the loop to 5 tenants means a non-matching login (the
+     common case for any login that isn't for one of these 5 schools) now
+     tries the per-tenant branch fallback for up to 5 tenants
+     sequentially — each of `RealLoginGate`/`RealUserLoginGate`'s
+     `$legacyFallback` closures is invoked on every non-matching
+     iteration, not only on total failure, so a fully non-matching login
+     now opens up to 6 PDO connections per gate (1 `school_saas_pilot` + up
+     to 5 branch fallbacks), on every attempt against the shared login
+     form, with no early break on the all-tenants-fail path. Both Task 1
+     and Task 2's reviews flagged this as confirmed to be **intensifying,
+     not causing**, the already-known, pre-existing connection-exhaustion
+     test flake first documented in Stage 1/2 (see this entry's Testing
+     paragraph below for this stage's own directly observed
+     corroboration). This is an accepted tradeoff of the approved
+     Approach A design above (reuse `verify()` unchanged rather than build
+     a new tenant-agnostic resolver) — worth revisiting only if connection
+     volume becomes an actual operational concern, matching how Stage 2
+     documented its own analogous Minor finding about `userlogin()`'s
+     then-single fallback connection.
+
+     **Testing.** Both `tests/controllers/SiteLoginRealLoginGateTest.php`
+     (+1 test: `testFailedLoginWithWrongPasswordForEachNewTenantStaffEmailIsUnaffected`,
+     covering all 4 new staff emails in one test) and
+     `tests/controllers/SiteUserloginRealUserLoginGateTest.php` (+2 tests:
+     `testFailedLoginWithWrongPasswordForEachNewTenantStudentIsUnaffected`
+     covering all 4 new student usernames, and
+     `testTenant30ShapedLoginAttemptFallsThroughToLegacyLoopUnaffected`)
+     gained new failure-path-only HTTP integration coverage — every new
+     assertion exercises a wrong password or a bogus/nonexistent identifier
+     over HTTP, matching this project's standing constraint that no real,
+     successful login is ever attempted via HTTP for any tenant. Both
+     modified files together: **7 tests, 27 assertions, 0 failures**,
+     reproduced 3 times in a row in isolation. Combined with both
+     directly-relevant unit suites (`RealLoginGateTest` 10 tests,
+     `RealUserLoginGateTest` 16 tests, both unmodified this stage): **33
+     tests, 53 assertions, 0 failures.** Full repository suite: **265
+     tests total** (262 before this stage's Task 3, +3 new). Ran the full
+     suite 7 times this task: failure counts varied per run (26-82
+     failures) but were, in every run, either fully confined to
+     `AdminControllerTenantGateTest` (the already-documented flake) or —
+     in 1 of the 7 runs — also transiently caught both of this stage's own
+     modified files (`SiteLoginRealLoginGateTest`,
+     `SiteUserloginRealUserLoginGateTest`) plus `PilotSecurityTest`, with
+     every single one of those failures being the identical
+     `curl`-connection-refused symptom (`Failed asserting that 0 is
+     identical to 200`) rather than a content/logic mismatch — the exact
+     pattern Stage 1/2 already documented, now directly observed to also
+     hit this stage's own new tests once, consistent with (and concrete
+     evidence for) the connection-count finding immediately above. No
+     fully clean (zero-failure) full-suite run was obtained in 7 attempts
+     this task, unlike Task 1 of this stage (2 of 4 clean); this is
+     reported honestly rather than citing an earlier, non-representative
+     clean number. No failure in any run, in any file, was ever a
+     rendered-text mismatch — the `Invalid Username Or Password` assertion
+     added by every new test passed unconditionally whenever its HTTP call
+     itself succeeded.
+
+     Scope explicitly does NOT extend beyond login verification for these 5
+     tenants: tenant 30, every other tenant, `Db_manager` routing, session
+     shape, and every other controller's data-access behavior remain
+     completely untouched. The plaintext student-password comparison
+     (Stage 2) and the `smart_school` data contamination (Stage 1, extended
+     above) both remain separate, pre-existing, already-flagged issues for
+     future dedicated efforts, not touched here.
+
 5. **Phase 5 — API layer** (not yet planned, renumbered from Phase 4)
    Apply the same treatment to `api/` (112 files) — separate branch-switch
    logic today, needs its own tenant-scoping pass.

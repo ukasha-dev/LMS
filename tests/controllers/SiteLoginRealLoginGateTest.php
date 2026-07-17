@@ -52,4 +52,37 @@ final class SiteLoginRealLoginGateTest extends TestCase
         $this->assertStringContainsString('name="username"', $body);
         $this->assertStringContainsString('name="password"', $body);
     }
+
+    // Phase 4 Stage 3: RealLoginGate's pre-loop check now also covers tenants
+    // 26-29 (in addition to tenant 25, Stage 1). The real HTTP field for the
+    // staff email is 'username' (see Site.php::login(), `$login_post['email']
+    // = $this->input->post('username')`), not 'email' -- confirmed by reading
+    // the controller and the existing test above before writing this one.
+    public function testFailedLoginWithWrongPasswordForEachNewTenantStaffEmailIsUnaffected(): void
+    {
+        $newTenantEmails = [
+            'khushbakhtfarooq7@gmail.com', // tenant 26
+            'hajiryasatali@gmail.com',     // tenant 27
+            'asadwali6@gmail.com',         // tenant 28
+            'smubshra@gmail.com',          // tenant 29
+        ];
+
+        foreach ($newTenantEmails as $email) {
+            $ch = curl_init(self::BASE_URL . 'site/login');
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_POST => true,
+                CURLOPT_POSTFIELDS => http_build_query([
+                    'username' => $email,
+                    'password' => 'definitely-wrong-password-' . bin2hex(random_bytes(4)),
+                ]),
+            ]);
+            $body = curl_exec($ch);
+            $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+
+            $this->assertSame(200, $status, "email {$email} should return 200");
+            $this->assertStringContainsString('Invalid Username Or Password', $body, "email {$email} should show the standard failure message");
+        }
+    }
 }

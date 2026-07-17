@@ -54,4 +54,58 @@ final class SiteUserloginRealUserLoginGateTest extends TestCase
         $this->assertSame(200, $status);
         $this->assertNotEmpty($body);
     }
+
+    // Phase 4 Stage 3: RealUserLoginGate's pre-loop check now also covers
+    // tenants 26-29 (in addition to tenant 25, Stage 2). Field names/BASE_URL
+    // match this file's existing convention above -- no adjustment needed,
+    // userlogin() posts 'username'/'password' directly (confirmed by reading
+    // Site.php::userlogin() before writing this).
+    public function testFailedLoginWithWrongPasswordForEachNewTenantStudentIsUnaffected(): void
+    {
+        $newTenantUsernames = ['std504', 'std144', 'std178', 'std1782']; // tenants 26-29
+
+        foreach ($newTenantUsernames as $username) {
+            $ch = curl_init(self::BASE_URL);
+            curl_setopt_array($ch, [
+                CURLOPT_POST => true,
+                CURLOPT_POSTFIELDS => http_build_query([
+                    'username' => $username,
+                    'password' => 'definitely-wrong-password-' . bin2hex(random_bytes(4)),
+                ]),
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_FOLLOWLOCATION => true,
+            ]);
+            $body = curl_exec($ch);
+            $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+
+            $this->assertSame(200, $status, "username {$username} should return 200");
+            $this->assertStringContainsString('Invalid Username Or Password', $body, "username {$username} should show the standard failure message");
+        }
+    }
+
+    public function testTenant30ShapedLoginAttemptFallsThroughToLegacyLoopUnaffected(): void
+    {
+        // Tenant 30 (Smart School) is deliberately never in this stage's
+        // loop array. A login attempt with a smart_school-shaped identifier
+        // must behave identically to any other non-matching login -- it
+        // reaches the legacy loop, which the pre-loop gate never touches
+        // for tenant 30.
+        $ch = curl_init(self::BASE_URL);
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => http_build_query([
+                'username' => 'definitely-not-a-smart-school-account-' . bin2hex(random_bytes(4)),
+                'password' => 'definitely-wrong-password',
+            ]),
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => true,
+        ]);
+        $body = curl_exec($ch);
+        $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        $this->assertSame(200, $status);
+        $this->assertStringContainsString('Invalid Username Or Password', $body);
+    }
 }
