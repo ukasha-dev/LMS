@@ -655,6 +655,99 @@ class Site extends Public_Controller
             );
             $data['captcha_image'] = $this->captchalib->generate_captcha()['image'];
             
+            // --- REAL USER LOGIN GATE (Phase 4 Stage 2) ---
+            // Independent pre-loop check for tenant 25 (al_hafeez_campus/branch_25)
+            // only. On a match, $found_group is set directly and the legacy loop
+            // below is skipped entirely for this login. On no match, $found_group
+            // stays 'default' and the legacy loop runs 100% unmodified, exactly as
+            // before this stage, for every case including tenant 25's own
+            // non-matches. This mirrors Phase 4 Stage 1's final architecture
+            // (tools/multitenant/RealLoginGate.php's wiring in login()) applied
+            // from the start here, not discovered reactively: school_saas_pilot
+            // and branch_20 (smart_school) both precede branch_25 in the same $db
+            // array this method also includes below, and smart_school is known to
+            // carry template-contaminated student data (see the roadmap's Phase 4
+            // Stage 1 entry, finding #2, and this stage's own smaller-scale
+            // confirmation). Never reassigns $this->db in this block except via
+            // the swap below.
+            $found_group = 'default';
+            try {
+                require_once APPPATH . '../tools/multitenant/RealUserLoginGate.php';
+                include(APPPATH . 'config/database.php');
+                $realUserLoginDbConfig = $db['school_saas_pilot'];
+                $realUserLoginPdo = new PDO(
+                    'mysql:host=' . $realUserLoginDbConfig['hostname'] . ';dbname=' . $realUserLoginDbConfig['database'] . ';charset=utf8mb4',
+                    $realUserLoginDbConfig['username'],
+                    $realUserLoginDbConfig['password']
+                );
+                $realUserLoginPdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+                $branch25Config = $db['branch_25'] ?? null;
+                $branch25UserLoginFallback = function () use ($branch25Config, $login_post): bool {
+                    if ($branch25Config === null) {
+                        return false;
+                    }
+                    $branch25Pdo = new PDO(
+                        'mysql:host=' . $branch25Config['hostname'] . ';dbname=' . $branch25Config['database'] . ';charset=utf8mb4',
+                        $branch25Config['username'],
+                        $branch25Config['password']
+                    );
+                    $branch25Pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+                    $branch25Stmt = $branch25Pdo->prepare(
+                        'SELECT users.id
+                         FROM users
+                         LEFT JOIN students
+                           ON (students.id = users.user_id OR students.parent_id = users.id)
+                         WHERE users.password = :password
+                         AND (
+                           users.username = :identifier
+                           OR students.admission_no = :identifier
+                           OR students.mobileno = :identifier
+                           OR students.email = :identifier
+                           OR students.guardian_phone = :identifier
+                           OR students.guardian_email = :identifier
+                         )
+                         LIMIT 1'
+                    );
+                    $branch25Stmt->execute([
+                        'identifier' => $login_post['username'],
+                        'password' => $login_post['password'],
+                    ]);
+
+                    return $branch25Stmt->fetch(PDO::FETCH_ASSOC) !== false;
+                };
+
+                $realUserLoginGate = new RealUserLoginGate($realUserLoginPdo);
+                $gateResult = $realUserLoginGate->verify(
+                    $login_post['username'],
+                    $login_post['password'],
+                    25,
+                    fn (string $submitted, string $stored): bool => $submitted === $stored,
+                    $branch25UserLoginFallback
+                );
+                if ($gateResult['source'] === 'legacy') {
+                    log_message('error', '[RealUserLoginGate] AMBIGUOUS_OR_STALE_SCHOOL_SAAS_MATCH tenant_id=25 identifier=' . $login_post['username']);
+                }
+                if ($gateResult['success']) {
+                    $found_group = 'branch_25';
+                }
+            } catch (\Throwable $e) {
+                log_message('error', '[RealUserLoginGate] EXCEPTION ' . $e->getMessage());
+            }
+            // --- END REAL USER LOGIN GATE ---
+
+            if ($found_group === 'branch_25') {
+                $CI =& get_instance();
+                $new_db = $CI->load->database($found_group, TRUE);
+                $CI->db->close();
+                $CI->db = $new_db;
+                $this->db = $new_db;
+                $this->setting_model->db = $new_db;
+                $this->user_model->db = $new_db;
+                $this->student_model->db = $new_db;
+                $this->customlib->db = $new_db;
+                $this->config->set_item('active_db_group', $found_group);
+            } else {
             // --- MULTI BRANCH STUDENT LOGIN FIX START ---
             include(APPPATH . 'config/database.php');
             if (isset($db) && is_array($db) && count($db) > 1) {
@@ -700,6 +793,7 @@ class Site extends Public_Controller
                 }
             }
             // --- MULTI BRANCH STUDENT LOGIN FIX END ---
+            }
 
             $login_details         = $this->user_model->checkLogin($login_post);
 
