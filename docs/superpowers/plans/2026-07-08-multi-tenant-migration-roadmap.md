@@ -1250,6 +1250,109 @@ made.
      (non-`tenant*`) controller methods' data-access behavior remain
      completely untouched for every tenant, including tenant 25.
 
+   - **Stage 2 — Real userlogin() verification cutover (pilot tenant)** —
+     ✅ complete (2026-07-17, plan:
+     `2026-07-17-multi-tenant-phase4-stage2-userlogin-verification-cutover.md`).
+     Direct sequel to Stage 1, applying the identical treatment to
+     `Site.php::userlogin()` (student/parent login, a separate method for a
+     separate user population — flagged as Stage 1's own "also found,
+     deliberately NOT fixed this stage" item above) instead of
+     `Site.php::login()` (staff). Same pilot tenant (25 / `al_hafeez_campus`
+     / `branch_25`), same isolation principle. Built a second,
+     framework-agnostic, PDO-based dual-check class,
+     `tools/multitenant/RealUserLoginGate.php` (commit `e3b4dc92`) —
+     deliberately not unified with `RealLoginGate` into a shared base;
+     per this project's own established convention (see Phase 2 Stage 3's
+     `MergeSchoolData`/`MergeStaffData`/`MergeClassData` unification), a
+     third near-duplicate is the trigger to generalize, not a second one.
+
+     **Started from Stage 1's FINAL architecture and ambiguity guard from
+     the beginning, not its first, later-reworked attempt.** Stage 1
+     shipped three same-day production bugs, found and fixed reactively by
+     its own final review, before arriving at: an independent,
+     tenant-25-scoped check that runs BEFORE the existing "MULTI BRANCH
+     STUDENT LOGIN FIX" loop (rather than special-cased inside it), plus an
+     ambiguity guard that refuses to trust a `school_saas` match as
+     authoritative if the same identifier+password also verifies under a
+     different tenant. This stage's plan and Task 1's first commit both
+     include that architecture and that guard from the start — wired into
+     the real `userlogin()` in commit `cc108e13`. Both of this stage's task
+     reviews — Task 2's especially, given it touches live production
+     authentication directly — independently confirmed this architecture
+     actually works as intended: the legacy "MULTI BRANCH STUDENT LOGIN
+     FIX" loop remains byte-for-byte unchanged, and the pre-loop gate
+     resolves the real tenant-25 test credential deterministically without
+     altering any other tenant's login outcome.
+
+     **Cross-tenant contamination, independently reconfirmed at smaller
+     scale, not fixed here.** Stage 1's finding #2 documented 93
+     `smart_school`-linked password-hash collisions across staff accounts,
+     consistent with `smart_school` (tenant 30) having been used as an
+     onboarding template cloned into every other school and never cleaned
+     up. This stage's own design investigation found the identical pattern
+     in `school_saas.users` for student/parent accounts, at smaller scale:
+     4 cross-tenant collision pairs, all between tenant 26 and tenant 30,
+     identical username+password on both sides each time (e.g.
+     `std1233`/`sfxcqb` present under both tenants). Same root cause,
+     smaller blast radius, explicitly out of scope for this stage — the
+     same real customer data-hygiene debt Stage 1 already flagged, now
+     confirmed to touch a second table.
+
+     **Plaintext password comparison mirrored, not fixed.**
+     `userlogin()`'s legacy check compares `users.password` directly
+     against the posted plaintext with no hashing at all, and this stage's
+     `RealUserLoginGate` deliberately mirrors that exact behavior — its
+     `$passwordVerifier` callback for this wiring is plain string equality,
+     not a hash comparison — rather than silently changing pre-existing
+     behavior as a side effect of an unrelated migration stage. This is a
+     real, separate, pre-existing security weakness (both here and in the
+     legacy code it mirrors), worth a dedicated future hardening pass
+     (hash the column, migrate existing rows, verify via a real
+     password-hash callback) independent of this migration.
+
+     Direct-class proof against real `school_saas`/`al_hafeez_campus` data
+     (all 4 expected outcomes matched exactly: authoritative
+     `school_saas` match, both-fail with the `al_hafeez_campus` fallback
+     also failing, nonexistent-identifier fail, and simulated ambiguity via
+     a throwaway fixture row inserted under real tenant 26 — chosen because
+     it already exists as a real tenant, satisfying `school_saas`'s
+     tenant-id foreign key — deleted immediately after and confirmed via a
+     0-row count check) plus an automated PHPUnit test
+     (`tests/controllers/SiteUserloginRealUserLoginGateTest.php`, 2 tests,
+     4 assertions) proving a failed/non-matching `userlogin()` request
+     still renders the correct failure text and the GET form still
+     renders. **No repeat of Stage 1's test-bug this time:** the rendered
+     failure-text assertion (`Invalid Username Or Password`) was verified
+     live via curl against the real endpoint before the test was written,
+     per Stage 1's Task 3 lesson, rather than assumed — it turned out to
+     render identically to `login()`'s failure text. Final test counts:
+     Task 1's `RealUserLoginGateTest` — 16 tests, 16 assertions; this
+     task's new `SiteUserloginRealUserLoginGateTest` — 2 tests, 4
+     assertions. Full suite: 262 tests, 1637 assertions, all passing, zero
+     new failures.
+
+     **Two Minor findings from Task 2's review, documented here per Stage
+     1's own precedent of surfacing Minor findings for future readers:**
+     (1) a residual gate-contract property structurally identical to
+     Stage 1's round-3-accepted limitation — the legacy `branch_25`
+     fallback queries `al_hafeez_campus`'s own `users` row directly, which
+     the ambiguity guard never inspects (the guard only ever looks inside
+     `school_saas`), so a shared/template-contaminated credential could in
+     principle still reach the legacy fallback path unchecked; accepted as
+     a known, pre-existing limitation with the same structural cause as
+     Stage 1's, not a new defect introduced here. (2) the pre-loop gate
+     opens fresh `PDO` connections (`school_saas_pilot`, and `branch_25`
+     when the fallback runs) on every `userlogin()` attempt, in addition to
+     the connections CI3's own `$this->db` machinery already manages — a
+     minor efficiency cost, not a correctness issue, worth revisiting only
+     if connection volume becomes an actual operational concern.
+
+     Scope explicitly does NOT extend beyond login verification for tenant
+     25: the other 5 tenants' `userlogin()` behavior, `Db_manager`
+     routing, session shape (`session_data`'s `student` key, `db_group`,
+     redirects), and every other controller's data-access behavior remain
+     completely untouched.
+
 5. **Phase 5 — API layer** (not yet planned, renumbered from Phase 4)
    Apply the same treatment to `api/` (112 files) — separate branch-switch
    logic today, needs its own tenant-scoping pass.
