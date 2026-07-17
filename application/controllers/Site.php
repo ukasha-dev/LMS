@@ -668,22 +668,33 @@ class Site extends Public_Controller
             );
             $data['captcha_image'] = $this->captchalib->generate_captcha()['image'];
             
-            // --- REAL USER LOGIN GATE (Phase 4 Stage 2) ---
-            // Independent pre-loop check for tenant 25 (al_hafeez_campus/branch_25)
-            // only. On a match, $found_group is set directly and the legacy loop
-            // below is skipped entirely for this login. On no match, $found_group
-            // stays 'default' and the legacy loop runs 100% unmodified, exactly as
-            // before this stage, for every case including tenant 25's own
-            // non-matches. This mirrors Phase 4 Stage 1's final architecture
-            // (tools/multitenant/RealLoginGate.php's wiring in login()) applied
-            // from the start here, not discovered reactively: school_saas_pilot
-            // and branch_20 (smart_school) both precede branch_25 in the same $db
-            // array this method also includes below, and smart_school is known to
-            // carry template-contaminated student data (see the roadmap's Phase 4
-            // Stage 1 entry, finding #2, and this stage's own smaller-scale
-            // confirmation). Never reassigns $this->db in this block except via
-            // the swap below.
+            // --- REAL USER LOGIN GATE (Phase 4 Stage 2, extended Stage 3) ---
+            // Independent pre-loop check for 5 tenants (26, 27, 28, 29, 25 --
+            // deliberately checked in this order, not tenant_id order, so
+            // that tenant 25's already-proven credential succeeding proves
+            // the loop genuinely iterated past 4 other tenants first, not
+            // just "matched on the first try"), run BEFORE and completely
+            // independent of the legacy multi-branch loop below. Tenant 30
+            // (Smart School) is deliberately never in this list -- see the
+            // Phase 4 Stage 3 roadmap entry: it's the confirmed source of
+            // the cross-tenant password-hash contamination found in Stages
+            // 1-2 (including 4 student-account collision pairs), so its own
+            // cutover waits for a dedicated data-cleanup effort. On a
+            // match, $found_group is set directly and the legacy loop below
+            // is skipped entirely for this login. On no match across all 5
+            // tenants, $found_group stays 'default' and the legacy loop
+            // runs 100% unmodified, exactly as before this stage. One
+            // tenant's connection failure logs and moves on to the next
+            // tenant, rather than aborting the whole gate. Never reassigns
+            // $this->db in this block except via the swap below.
             $found_group = 'default';
+            $realUserLoginTenants = [
+                26 => 'branch_24',
+                27 => 'branch_23',
+                28 => 'branch_22',
+                29 => 'branch_21',
+                25 => 'branch_25',
+            ];
             try {
                 require_once APPPATH . '../tools/multitenant/RealUserLoginGate.php';
                 include(APPPATH . 'config/database.php');
@@ -694,62 +705,70 @@ class Site extends Public_Controller
                     $realUserLoginDbConfig['password']
                 );
                 $realUserLoginPdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-
-                $branch25Config = $db['branch_25'] ?? null;
-                $branch25UserLoginFallback = function () use ($branch25Config, $login_post): bool {
-                    if ($branch25Config === null) {
-                        return false;
-                    }
-                    $branch25Pdo = new PDO(
-                        'mysql:host=' . $branch25Config['hostname'] . ';dbname=' . $branch25Config['database'] . ';charset=utf8mb4',
-                        $branch25Config['username'],
-                        $branch25Config['password']
-                    );
-                    $branch25Pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-                    $branch25Stmt = $branch25Pdo->prepare(
-                        'SELECT users.id
-                         FROM users
-                         LEFT JOIN students
-                           ON (students.id = users.user_id OR students.parent_id = users.id)
-                         WHERE users.password = :password
-                         AND (
-                           users.username = :identifier
-                           OR students.admission_no = :identifier
-                           OR students.mobileno = :identifier
-                           OR students.email = :identifier
-                           OR students.guardian_phone = :identifier
-                           OR students.guardian_email = :identifier
-                         )
-                         LIMIT 1'
-                    );
-                    $branch25Stmt->execute([
-                        'identifier' => $login_post['username'],
-                        'password' => $login_post['password'],
-                    ]);
-
-                    return $branch25Stmt->fetch(PDO::FETCH_ASSOC) !== false;
-                };
-
                 $realUserLoginGate = new RealUserLoginGate($realUserLoginPdo);
-                $gateResult = $realUserLoginGate->verify(
-                    $login_post['username'],
-                    $login_post['password'],
-                    25,
-                    fn (string $submitted, string $stored): bool => $submitted === $stored,
-                    $branch25UserLoginFallback
-                );
-                if ($gateResult['source'] === 'legacy') {
-                    log_message('error', '[RealUserLoginGate] AMBIGUOUS_OR_STALE_SCHOOL_SAAS_MATCH tenant_id=25 identifier=' . $login_post['username']);
-                }
-                if ($gateResult['success']) {
-                    $found_group = 'branch_25';
+
+                foreach ($realUserLoginTenants as $realUserLoginTenantId => $realUserLoginBranchGroup) {
+                    try {
+                        $branchConfig = $db[$realUserLoginBranchGroup] ?? null;
+                        $branchUserLoginFallback = function () use ($branchConfig, $login_post): bool {
+                            if ($branchConfig === null) {
+                                return false;
+                            }
+                            $branchPdo = new PDO(
+                                'mysql:host=' . $branchConfig['hostname'] . ';dbname=' . $branchConfig['database'] . ';charset=utf8mb4',
+                                $branchConfig['username'],
+                                $branchConfig['password']
+                            );
+                            $branchPdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+                            $branchStmt = $branchPdo->prepare(
+                                'SELECT users.id
+                                 FROM users
+                                 LEFT JOIN students
+                                   ON (students.id = users.user_id OR students.parent_id = users.id)
+                                 WHERE users.password = :password
+                                 AND (
+                                   users.username = :identifier
+                                   OR students.admission_no = :identifier
+                                   OR students.mobileno = :identifier
+                                   OR students.email = :identifier
+                                   OR students.guardian_phone = :identifier
+                                   OR students.guardian_email = :identifier
+                                 )
+                                 LIMIT 1'
+                            );
+                            $branchStmt->execute([
+                                'identifier' => $login_post['username'],
+                                'password' => $login_post['password'],
+                            ]);
+
+                            return $branchStmt->fetch(PDO::FETCH_ASSOC) !== false;
+                        };
+
+                        $gateResult = $realUserLoginGate->verify(
+                            $login_post['username'],
+                            $login_post['password'],
+                            $realUserLoginTenantId,
+                            fn (string $submitted, string $stored): bool => $submitted === $stored,
+                            $branchUserLoginFallback
+                        );
+                        if ($gateResult['source'] === 'legacy') {
+                            log_message('error', '[RealUserLoginGate] AMBIGUOUS_OR_STALE_SCHOOL_SAAS_MATCH tenant_id=' . $realUserLoginTenantId . ' identifier=' . $login_post['username']);
+                        }
+                        if ($gateResult['success']) {
+                            $found_group = $realUserLoginBranchGroup;
+                            break;
+                        }
+                    } catch (\Throwable $e) {
+                        log_message('error', '[RealUserLoginGate] EXCEPTION tenant_id=' . $realUserLoginTenantId . ' ' . $e->getMessage());
+                        continue;
+                    }
                 }
             } catch (\Throwable $e) {
-                log_message('error', '[RealUserLoginGate] EXCEPTION ' . $e->getMessage());
+                log_message('error', '[RealUserLoginGate] EXCEPTION setup ' . $e->getMessage());
             }
             // --- END REAL USER LOGIN GATE ---
 
-            if ($found_group === 'branch_25') {
+            if ($found_group !== 'default') {
                 $CI =& get_instance();
                 $new_db = $CI->load->database($found_group, TRUE);
                 $CI->db->close();
