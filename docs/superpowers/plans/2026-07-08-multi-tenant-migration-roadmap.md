@@ -1057,16 +1057,95 @@ made.
      section's Stage 14 scope correction for the real, live-queried current
      total (225, up from 36).
 
-4. **Phase 4 — API layer** (not yet planned)
+4. **Phase 4 — Production Cutover** (in progress, staged)
+
+   **Renumbering note (2026-07-16):** this phase number was previously
+   reserved, unplanned, for "API layer" work (see the renumbered entry
+   below, now Phase 6). This phase is new: cutting the 6 already-onboarded
+   schools over to treating `school_saas` as authoritative, one small,
+   individually-safe sub-project at a time — user-directed
+   ("production ready" push, 2026-07-16), decomposed during brainstorming
+   into: auth/session cutover, per-module data cutover (fees, exams,
+   attendance, HR, library — separate stages, one per module), the
+   `Db_manager` routing switch itself, a consistency/rollback strategy for
+   the transition window, and eventual decommissioning of the per-branch
+   databases. Each sub-project gets its own design → plan → implementation
+   cycle; this phase's Stage 1 is the first and smallest of them.
+
+   **Revisits a deliberately-deferred decision:** Phase 2 Stage 1
+   (2026-07-09, above) explicitly deferred touching `Site.php::login()`'s
+   real production path — "modifying it directly, even gated, means every
+   login for every school runs through touched code, a much bigger risk
+   than anything Phase 1 touched" — until "more of the admin panel is
+   proven tenant-safe end to end." As of Phase 3 Stage 14, 43 controllers
+   have tenant-safe routes, but every one of them is still purely additive
+   (new `tenant*` methods; the real, unprefixed methods remain completely
+   unaware of `school_saas`) — nowhere near the full admin panel. Stage 1
+   below proceeds anyway, not because that bar was met, but because its
+   design makes the blast radius of touching `Site.php::login()` genuinely
+   negligible regardless: gated to one tenant (`branch_25`) only, wrapped
+   in try/catch, and constructed so it can only ever ADD a successful
+   login the legacy path would have rejected — never introduce a failure
+   the legacy path alone wouldn't have produced. This is a narrower,
+   safer claim than "the admin panel is tenant-safe," and is why this
+   stage was judged safe to start now rather than waiting.
+
+   - **Stage 1 — Real login verification cutover (pilot tenant)** — ✅
+     complete (2026-07-17, plan:
+     `2026-07-16-multi-tenant-phase4-stage1-real-login-verification-cutover.md`).
+     Built `tools/multitenant/RealLoginGate.php` (commit `c249942b`), a
+     framework-agnostic, PDO-based dual-check class (`school_saas` first,
+     legacy per-branch row as fallback), matching the existing
+     `ShadowLoginVerifier` isolation pattern. Wired it into the real,
+     live `Site.php::login()`'s multi-branch password-matching loop,
+     special-cased to the `branch_25` (`al_hafeez_campus`/tenant 25)
+     iteration only (commit `88ac8506`) — every other branch's check
+     remains the byte-for-byte original single line. Empirically
+     confirmed (live `multi_branch` query, re-verified independently by
+     both the implementer and the task reviewer) that `branch_25` is the
+     LAST branch iterated, meaning a real login for any of the other 5
+     schools matches its own branch and exits the loop before ever
+     reaching the new code — this is what makes "byte-for-byte unchanged
+     for the other 5" concretely true, not just intended. Direct-class
+     proof against real `school_saas`/`al_hafeez_campus` data (all 4
+     expected outcomes matched exactly: authoritative match, both-fail,
+     cross-tenant isolation, simulated drift-fallback) plus an automated
+     PHPUnit test (`tests/controllers/SiteLoginRealLoginGateTest.php`)
+     proving a failed/non-matching login is unaffected and triggers zero
+     new logging. **One real bug found and fixed during Task 3
+     execution:** the test's first draft asserted the literal lang key
+     `invalid_username_or_password` instead of its rendered text
+     (`Invalid Username Or Password`) — caught independently by both the
+     Task 3 implementer subagent (which correctly refused to silently
+     patch a failing test and escalated instead) and the controller's own
+     parallel debugging; fixed by asserting the actual rendered string.
+     **One real operational caveat, not a code defect:** `log_threshold`
+     is `0` site-wide today, so the new drift-detection log line
+     (`PASSWORD_DRIFT_DETECTED`) will not actually persist anywhere until
+     logging is re-enabled — the code fires it correctly, but its
+     observability goal is neutralized until that separate, pre-existing
+     environment condition is addressed. Scope explicitly does NOT extend
+     beyond login verification: `Db_manager` routing, `$this->db`,
+     session shape, and all real (non-`tenant*`) controller methods'
+     data-access behavior remain completely untouched for every tenant,
+     including tenant 25. Full whole-stage adversarial review: [pending
+     at time of writing this entry — see final review findings before
+     treating this stage as merge-ready].
+
+6. **Phase 6 — API layer** (not yet planned, renumbered from Phase 4)
    Apply the same treatment to `api/` (112 files) — separate branch-switch
    logic today, needs its own tenant-scoping pass.
 
-5. **Phase 5 — Migrate remaining schools + cutover** (not yet planned)
-   Using the now-battle-tested merge tool from Phase 1, migrate each
-   remaining school one at a time into `school_saas`, validating after
-   each before moving to the next. Retire `multi_branch`/`Db_manager` and
-   the old per-branch databases only after every school is confirmed
-   stable on the shared schema.
+7. **Phase 7 — Onboard additional schools** (not yet planned, renumbered
+   from "Phase 5 — Migrate remaining schools + cutover")
+   Using the now-battle-tested merge tool from Phase 1, onboard any school
+   not among the current 6 into `school_saas`, one at a time, validating
+   after each. Distinct from Phase 4's cutover work: Phase 4 cuts the 6
+   already-onboarded schools over to treating `school_saas` as
+   authoritative; this phase is about growing beyond those 6. Retire
+   `multi_branch`/`Db_manager` and the old per-branch databases only once
+   every school — the original 6 and any onboarded here — is fully cut
+   over and confirmed stable.
 
 ## Non-negotiables across every phase
 
