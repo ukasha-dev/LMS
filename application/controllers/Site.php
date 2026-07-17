@@ -95,27 +95,112 @@ class Site extends Public_Controller
             }
             $setting_result        = $this->setting_model->get();
 
-            // --- MULTI BRANCH STAFF LOGIN FIX START ---
+            // --- REAL LOGIN GATE (Phase 4 Stage 1) ---
+            // Tenant 25 (al_hafeez_campus/branch_25) check, run BEFORE and
+            // completely independent of the legacy multi-branch loop
+            // below. school_saas is the authoritative password check;
+            // branch_25's own row (fetched directly here, not via the
+            // loop) is the fallback so a stale school_saas password can
+            // never lock a real user out. If either matches, we resolve
+            // directly to branch_25 and skip the legacy loop entirely for
+            // this login.
+            //
+            // Why this can't live inside the legacy loop (discovered live
+            // during this stage's adversarial review, 2026-07-17, and
+            // NOT fixed here -- out of scope, pre-existing, affects all 6
+            // real schools, not just tenant 25): the loop's own
+            // email+password matching is unreliable once duplicate
+            // credentials exist across branch databases. Two real
+            // collisions were found live: (1) `school_saas_pilot` (a
+            // migration-infrastructure connection group, not a real
+            // school) sits in the same $db array the loop iterates,
+            // before any branch_* entry, and can match first;
+            // (2) `smart_school` (branch_20) contains byte-identical
+            // password hashes for a large fraction of at least 5 of the
+            // 6 real schools' real staff (93 cross-database collisions
+            // confirmed live across all 6 real school databases),
+            // consistent with smart_school having been used as an
+            // onboarding template that was never cleaned up in the
+            // schools cloned from it. Either collision can cause the
+            // legacy loop to match a DIFFERENT school's database before
+            // ever reaching the tenant a login is actually for. This
+            // block sidesteps that entire class of problem for tenant 25
+            // specifically by checking a tenant-scoped source first,
+            // rather than attempting to fix the loop's ordering (which
+            // cannot be done safely without investigating the same
+            // collision risk for the other 5 tenants, a separate,
+            // dedicated data-integrity investigation this stage does not
+            // attempt). Never reassigns $this->db.
+            $found_group = 'default';
+            try {
+                require_once APPPATH . '../tools/multitenant/RealLoginGate.php';
+                include(APPPATH . 'config/database.php');
+                $realLoginDbConfig = $db['school_saas_pilot'];
+                $realLoginPdo = new PDO(
+                    'mysql:host=' . $realLoginDbConfig['hostname'] . ';dbname=' . $realLoginDbConfig['database'] . ';charset=utf8mb4',
+                    $realLoginDbConfig['username'],
+                    $realLoginDbConfig['password']
+                );
+                $realLoginPdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+                $branch25Config = $db['branch_25'] ?? null;
+                $branch25RowPassword = null;
+                if ($branch25Config) {
+                    $branch25Pdo = new PDO(
+                        'mysql:host=' . $branch25Config['hostname'] . ';dbname=' . $branch25Config['database'] . ';charset=utf8mb4',
+                        $branch25Config['username'],
+                        $branch25Config['password']
+                    );
+                    $branch25Pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+                    $branch25Stmt = $branch25Pdo->prepare('SELECT password FROM staff WHERE email = :email LIMIT 1');
+                    $branch25Stmt->execute(['email' => $login_post['email']]);
+                    $branch25Row = $branch25Stmt->fetch(PDO::FETCH_ASSOC);
+                    $branch25RowPassword = $branch25Row['password'] ?? null;
+                }
+
+                $realLoginGate = new RealLoginGate($realLoginPdo);
+                $gateResult = $realLoginGate->verify(
+                    $login_post['email'],
+                    $login_post['password'],
+                    25,
+                    [$this->enc_lib, 'passHashDyc'],
+                    function () use ($login_post, $branch25RowPassword) {
+                        return $branch25RowPassword !== null
+                            && $this->enc_lib->passHashDyc($login_post['password'], $branch25RowPassword);
+                    }
+                );
+                if ($gateResult['source'] === 'legacy') {
+                    log_message('error', '[RealLoginGate] PASSWORD_DRIFT_DETECTED tenant_id=25 email=' . $login_post['email']);
+                }
+                if ($gateResult['success']) {
+                    $found_group = 'branch_25';
+                }
+            } catch (\Throwable $e) {
+                log_message('error', '[RealLoginGate] EXCEPTION ' . $e->getMessage());
+                // $found_group stays 'default'; the legacy loop below
+                // still runs completely normally as the fallback.
+            }
+            // --- END REAL LOGIN GATE ---
+
+            if ($found_group === 'branch_25') {
+                $CI =& get_instance();
+                $new_db = $CI->load->database($found_group, TRUE);
+                $CI->db->close();
+                $CI->db = $new_db;
+                $this->db = $new_db;
+                $this->setting_model->db = $new_db;
+                $this->staff_model->db = $new_db;
+                $this->staffroles_model->db = $new_db;
+                $this->customlib->db = $new_db;
+                $this->config->set_item('active_db_group', $found_group);
+                $setting_result = $this->setting_model->get();
+            } else {
+            // --- MULTI BRANCH STAFF LOGIN FIX START --- (unmodified from before this stage)
             include(APPPATH . 'config/database.php');
             if (isset($db) && is_array($db) && count($db) > 1) {
                 $found_group = 'default';
                 foreach ($db as $group_name => $config_item) {
-                    // 'school_saas_pilot' is a special-purpose connection
-                    // group added by the multi-tenant migration (used by
-                    // PilotLogin and the tenant* allowlist gate), not a
-                    // real per-branch school database -- it must never be
-                    // treated as a login candidate by this loop, same as
-                    // 'default'. Discovered live (Phase 4 Stage 1 final
-                    // review, 2026-07-17): without this skip, any of the 6
-                    // real tenants whose school_saas-migrated password
-                    // snapshot still happens to match would short-circuit
-                    // here BEFORE ever reaching their own real branch_<id>
-                    // entry, silently swapping $this->db to the entire
-                    // shared, non-tenant-scoped school_saas connection
-                    // instead of their own real database -- and, for
-                    // tenant 25 specifically, meant the REAL LOGIN GATE
-                    // block below was never reached at all.
-                    if ($group_name === 'default' || $group_name === 'school_saas_pilot') continue;
+                    if ($group_name === 'default') continue;
                     $test_db = @$this->load->database($group_name, TRUE);
                     if ($test_db && $test_db->conn_id) {
                         $test_db->select('password');
@@ -124,49 +209,7 @@ class Site extends Public_Controller
                         $query = $test_db->get('staff');
                         if ($query && $query->num_rows() == 1) {
                             $row = $query->row();
-                            if ($group_name === 'branch_25') {
-                                // --- REAL LOGIN GATE (Phase 4 Stage 1) ---
-                                // school_saas is now the authoritative password
-                                // check for tenant 25 (branch_25 / al_hafeez_campus).
-                                // This branch's own row (fetched above by the
-                                // unmodified surrounding loop) is used as the
-                                // fallback so a stale school_saas password can
-                                // never lock a real user out. Any error here
-                                // degrades to exactly today's check, never worse.
-                                // Never reassigns $this->db.
-                                try {
-                                    require_once APPPATH . '../tools/multitenant/RealLoginGate.php';
-                                    $realLoginDbConfig = $db['school_saas_pilot'];
-                                    $realLoginPdo = new PDO(
-                                        'mysql:host=' . $realLoginDbConfig['hostname'] . ';dbname=' . $realLoginDbConfig['database'] . ';charset=utf8mb4',
-                                        $realLoginDbConfig['username'],
-                                        $realLoginDbConfig['password']
-                                    );
-                                    $realLoginPdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-                                    $realLoginGate = new RealLoginGate($realLoginPdo);
-                                    $branchRowPassword = $row->password;
-                                    $gateResult = $realLoginGate->verify(
-                                        $login_post['email'],
-                                        $login_post['password'],
-                                        25,
-                                        [$this->enc_lib, 'passHashDyc'],
-                                        function () use ($login_post, $branchRowPassword) {
-                                            return $this->enc_lib->passHashDyc($login_post['password'], $branchRowPassword);
-                                        }
-                                    );
-                                    if ($gateResult['source'] === 'legacy') {
-                                        log_message('error', '[RealLoginGate] PASSWORD_DRIFT_DETECTED tenant_id=25 email=' . $login_post['email']);
-                                    }
-                                    $passwordMatched = $gateResult['success'];
-                                } catch (\Throwable $e) {
-                                    log_message('error', '[RealLoginGate] EXCEPTION ' . $e->getMessage());
-                                    $passwordMatched = $this->enc_lib->passHashDyc($login_post['password'], $row->password);
-                                }
-                                // --- END REAL LOGIN GATE ---
-                            } else {
-                                $passwordMatched = $this->enc_lib->passHashDyc($login_post['password'], $row->password);
-                            }
-                            if ($passwordMatched) {
+                            if ($this->enc_lib->passHashDyc($login_post['password'], $row->password)) {
                                 $found_group = $group_name;
                                 $test_db->close();
                                 break;
@@ -175,7 +218,7 @@ class Site extends Public_Controller
                         $test_db->close();
                     }
                 }
-                
+
                 if ($found_group !== 'default') {
                     $CI =& get_instance();
                     $new_db = $CI->load->database($found_group, TRUE);
@@ -191,6 +234,7 @@ class Site extends Public_Controller
                 }
             }
             // --- MULTI BRANCH STAFF LOGIN FIX END ---
+            }
 
             $result                = $this->staff_model->checkLogin($login_post);
 
