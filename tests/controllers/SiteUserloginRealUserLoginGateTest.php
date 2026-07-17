@@ -8,6 +8,9 @@ final class SiteUserloginRealUserLoginGateTest extends TestCase
 
     public function testFailedLoginForNonExistentAccountIsUnaffectedAndLogsNoNewException(): void
     {
+        $logFile = __DIR__ . '/../../application/logs/log-' . date('Y-m-d') . '.php';
+        $logSizeBefore = file_exists($logFile) ? filesize($logFile) : 0;
+
         $ch = curl_init(self::BASE_URL);
         curl_setopt_array($ch, [
             CURLOPT_POST => true,
@@ -29,6 +32,12 @@ final class SiteUserloginRealUserLoginGateTest extends TestCase
         // live via curl during implementation that userlogin()'s failure path
         // renders the identical text as login()'s.
         $this->assertStringContainsString('Invalid Username Or Password', $body);
+
+        if (file_exists($logFile)) {
+            $newLogContent = file_get_contents($logFile);
+            $newLogContent = substr($newLogContent, $logSizeBefore);
+            $this->assertStringNotContainsString('RealUserLoginGate', $newLogContent, 'a login matching no real account must never trigger RealUserLoginGate logging');
+        }
     }
 
     public function testUserloginFormRendersIdenticallyOnGet(): void
