@@ -90,4 +90,71 @@ final class RealLoginGateTest extends TestCase
 
         $this->assertSame(['my-password', 'school-saas-hash'], $seenArgs);
     }
+
+    public function testFallsBackToLegacyWhenTheSameCredentialAlsoVerifiesUnderAnotherTenant(): void
+    {
+        // A shared/vendor account: same email+password-verifying-hash exists
+        // under both tenant 25 and tenant 30 (mirrors the real
+        // hamza.ali@kics.edu.pk case found live -- one hash shared across
+        // every real tenant). Must NOT be trusted as an authoritative
+        // tenant-25 match, since it can't actually be disambiguated --
+        // falls through to whatever the legacy fallback decides instead.
+        $this->pdo->exec("INSERT INTO staff (email, password, tenant_id) VALUES ('shared@example.com', 'shared-hash', 25)");
+        $this->pdo->exec("INSERT INTO staff (email, password, tenant_id) VALUES ('shared@example.com', 'shared-hash', 30)");
+
+        $result = $this->gate->verify('shared@example.com', 'anything', 25, $this->verifierMatching('shared-hash'), fn (): bool => true);
+
+        $this->assertSame(['success' => true, 'source' => 'legacy'], $result);
+    }
+
+    public function testFallsBackToLegacyWhenTheSameCredentialVerifiesUnderMultipleOtherTenants(): void
+    {
+        // Same shape as the real hamza.ali@kics.edu.pk case: identical hash
+        // present under many tenants, not just one other.
+        $this->pdo->exec("INSERT INTO staff (email, password, tenant_id) VALUES ('vendor@example.com', 'vendor-hash', 25)");
+        foreach ([26, 27, 28, 29, 30] as $otherTenant) {
+            $this->pdo->exec("INSERT INTO staff (email, password, tenant_id) VALUES ('vendor@example.com', 'vendor-hash', $otherTenant)");
+        }
+
+        $result = $this->gate->verify('vendor@example.com', 'anything', 25, $this->verifierMatching('vendor-hash'), fn (): bool => true);
+
+        $this->assertSame(['success' => true, 'source' => 'legacy'], $result);
+    }
+
+    public function testStillSucceedsViaSchoolSaasWhenAnotherTenantHasTheSameEmailButADifferentPassword(): void
+    {
+        // Same email exists under another tenant too, but with a DIFFERENT
+        // stored hash (a coincidental email reuse, not a shared credential)
+        // -- the requested tenant's own match is still unique with respect
+        // to the submitted password and must be trusted normally.
+        $this->pdo->exec("INSERT INTO staff (email, password, tenant_id) VALUES ('coincidental@example.com', 'tenant25-hash', 25)");
+        $this->pdo->exec("INSERT INTO staff (email, password, tenant_id) VALUES ('coincidental@example.com', 'tenant30-different-hash', 30)");
+
+        $verifier = function (string $password, string $storedHash): bool {
+            return $storedHash === 'tenant25-hash';
+        };
+        $legacyFallback = function (): bool {
+            throw new \RuntimeException('legacy fallback must not be called for an unambiguous school_saas match');
+        };
+
+        $result = $this->gate->verify('coincidental@example.com', 'anything', 25, $verifier, $legacyFallback);
+
+        $this->assertSame(['success' => true, 'source' => 'school_saas'], $result);
+    }
+
+    public function testAmbiguityCheckOnlyConsidersTheRequestedEmail(): void
+    {
+        // A different email under another tenant, even with the same
+        // stored hash, must not cause a false ambiguity match -- the
+        // ambiguity check is scoped by email, matching the primary lookup.
+        $this->pdo->exec("INSERT INTO staff (email, password, tenant_id) VALUES ('unrelated@example.com', 'school-saas-hash', 30)");
+
+        $legacyFallback = function (): bool {
+            throw new \RuntimeException('legacy fallback must not be called when the requested-tenant match is unambiguous');
+        };
+
+        $result = $this->gate->verify('real@example.com', 'anything', 25, $this->verifierMatching('school-saas-hash'), $legacyFallback);
+
+        $this->assertSame(['success' => true, 'source' => 'school_saas'], $result);
+    }
 }

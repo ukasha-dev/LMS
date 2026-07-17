@@ -1117,9 +1117,16 @@ made.
      matches, `$found_group` stays `'default'` and the legacy multi-branch
      loop runs — **completely unmodified, byte-for-byte identical to
      before this stage, for every tenant including tenant 25's own
-     failure case.** This makes "byte-for-byte unchanged for the other 5
-     schools" true by construction (the loop itself was fully reverted to
-     its original form), not by argument about iteration order. Verified
+     failure case.** This makes the LEGACY LOOP ITSELF byte-for-byte
+     unchanged, by construction, not by argument about iteration order —
+     but this is a narrower claim than "the other 5 schools' login
+     outcomes are completely unaffected," which does NOT hold
+     unconditionally: the new pre-loop gate runs on every login to the
+     shared login form (there is no per-school login URL), so it can
+     still affect a non-tenant-25 login whose credentials also happen to
+     verify against `school_saas`'s `tenant_id=25` data. Iteration #3
+     below (found re-reviewing this fix) is the concrete case that
+     surfaced and fixed. Verified
      via a read-only simulation (real `$db` config, real per-branch data,
      no HTTP, no CI3): the real tenant-25 test credential now resolves to
      `branch_25` via `school_saas` deterministically, independent of
@@ -1174,6 +1181,42 @@ made.
         actually authenticated against the wrong school's session as a
         result; a real cleanup strategy) — explicitly out of scope for a
         same-day fix to live authentication code.
+     3. *Shared-credential mis-routing (found re-reviewing fix #2).* The
+        independent pre-loop gate runs on every login to the shared
+        `Site.php::login()` form — there is no per-school login URL, so
+        the gate cannot know in advance which school a login is
+        "for." A live audit found `hamza.ali@kics.edu.pk` (a vendor/
+        support account, `@kics.edu.pk` domain) present with a
+        byte-identical password hash under all 6 real `tenant_id`s in
+        `school_saas` (and under every real per-branch database too).
+        Before this fix, such a login would deterministically resolve to
+        `branch_25` regardless of which school's login page it came
+        from — a wrong-tenant authenticated session for a privileged
+        account, though no worse than this account's already-ambiguous
+        routing before this stage (it collided with `school_saas_pilot`
+        in the original pre-stage loop too). Confirmed live this affects
+        exactly this one known shared account, not ordinary per-school
+        staff (every other real school's staff have distinct emails).
+        **Fix:** `RealLoginGate::verify()` now checks, after finding a
+        `tenant_id`-scoped match, whether the SAME email+password also
+        verifies under any OTHER `tenant_id` in `school_saas` (a
+        single-table check — `school_saas` already holds every tenant's
+        data, so this never queries another tenant's separate per-branch
+        database, and never uses another tenant's data for anything
+        beyond "does this password also verify there"). If ambiguous,
+        the match is not trusted as authoritative and the caller's
+        legacy fallback decides instead — preserving whatever the
+        pre-existing, already-ambiguous legacy behavior for that
+        specific credential already was, rather than this class
+        inventing a new, confident, wrong answer for a case it cannot
+        actually disambiguate. Re-verified live: `hamza.ali@kics.edu.pk`
+        now correctly falls through instead of resolving to `branch_25`;
+        the genuine, unique tenant-25 test credential is unaffected
+        (still resolves via `school_saas` normally). 5 new unit tests
+        added covering the ambiguity check (shared-across-2-tenants,
+        shared-across-5-tenants matching the real `hamza.ali` shape,
+        same-email-different-password non-ambiguity, and email-scoping
+        of the check itself) — 10/10 `RealLoginGateTest` passing.
 
      **Also found, deliberately NOT fixed this stage (separate scope):**
      `Site.php::userlogin()` (student/parent login, a different method
