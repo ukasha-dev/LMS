@@ -1104,18 +1104,75 @@ made.
      `ShadowLoginVerifier` isolation pattern. Wired it into the real,
      live `Site.php::login()`'s multi-branch password-matching loop,
      special-cased to the `branch_25` (`al_hafeez_campus`/tenant 25)
-     iteration only (commit `88ac8506`) — every other branch's check
-     remains the byte-for-byte original single line. Empirically
-     confirmed (live `multi_branch` query, re-verified independently by
-     both the implementer and the task reviewer) that `branch_25` is the
-     LAST branch iterated, meaning a real login for any of the other 5
-     schools matches its own branch and exits the loop before ever
-     reaching the new code — this is what makes "byte-for-byte unchanged
-     for the other 5" concretely true, not just intended. Direct-class
-     proof against real `school_saas`/`al_hafeez_campus` data (all 4
-     expected outcomes matched exactly: authoritative match, both-fail,
-     cross-tenant isolation, simulated drift-fallback) plus an automated
-     PHPUnit test (`tests/controllers/SiteLoginRealLoginGateTest.php`)
+     iteration only (commit `88ac8506`).
+
+     **Critical finding from the final whole-stage adversarial review,
+     found and fixed same-day, not shipped broken:** the review
+     independently re-verified the "byte-for-byte unchanged for the
+     other 5 schools" claim above and found it true but answering the
+     wrong question. `application/config/database.php` inserts
+     `$db['school_saas_pilot']` (→ the shared `school_saas` database)
+     into the SAME `$db` array the login loop iterates, positioned
+     *before* any dynamically-added `branch_*` entry. The loop's original
+     skip condition only excluded `'default'`, not `'school_saas_pilot'`
+     — so for tenant 25, the loop matched at `school_saas_pilot` (a
+     non-tenant-scoped `WHERE email=... LIMIT 1` check) and `break`s
+     *before ever reaching `branch_25`*, meaning `RealLoginGate` was
+     unreachable dead code as originally committed. Confirmed live: the
+     real tenant-25 test credential's password hash matches in
+     `school_saas.staff`, and `school_saas.staff` holds the SAME email
+     under two different tenants in more than one case (`tenant_id=25`
+     and `tenant_id=30` for one; `tenant_id=26` and `tenant_id=30` for
+     another) — a pre-existing, non-tenant-scoped ambiguity, not
+     introduced by this stage. **This was not tenant-25-specific**: any
+     of the 6 real tenants whose `school_saas`-migrated password snapshot
+     still happened to match would hit the exact same short-circuit,
+     silently swapping `$this->db` to the entire shared `school_saas`
+     connection instead of their own real per-branch database.
+
+     **Fix (commit — see `Site.php` diff, same-day):** the loop now
+     skips `'school_saas_pilot'` alongside `'default'`. Re-verified via a
+     read-only simulation (real `$db` config, real per-branch data, no
+     HTTP, no CI3) that the tenant-25 credential now correctly proceeds
+     past every branch that doesn't match and reaches `branch_25`, where
+     `RealLoginGate`'s own check against `school_saas` succeeds
+     (`{"success":true,"source":"school_saas"}`) and `$found_group`
+     correctly resolves to `branch_25` — proving the intended behavior
+     (school_saas-authoritative password, real per-branch session) now
+     actually fires. Confirmed each of the other 5 tenants' real branch
+     databases still have populated staff/password data (structural
+     sanity; a true login-success proof isn't attempted for any tenant,
+     per this stage's own no-real-HTTP-login constraint). **Honest
+     characterization of impact on the other 5 tenants, since the
+     original "byte-for-byte unchanged" claim no longer holds exactly as
+     worded:** for a REAL staff member with a real, current password
+     correctly stored in their own real branch database, nothing
+     changes — they always resolved via their own branch already. The
+     only behavior that changes is the narrow, arguably-already-broken
+     case where a tenant's `school_saas`-migrated password snapshot
+     happens to still coincidentally match `school_saas_pilot`'s
+     non-tenant-scoped check — that case now correctly proceeds to (and
+     either matches or fails at) the tenant's own real branch, instead of
+     incorrectly succeeding via the shared, ambiguous `school_saas_pilot`
+     path. This is a fix to latent pre-existing behavior, not a new
+     regression.
+
+     **Also found, deliberately NOT fixed this stage (separate scope):**
+     `Site.php::userlogin()` (student/parent login, a different method
+     for a different user population, ~500 lines away) has its own
+     "MULTI BRANCH STUDENT LOGIN FIX" block with the identical unguarded
+     loop pattern — the same `school_saas_pilot` short-circuit risk
+     likely applies there too, plus it compares `users.password` directly
+     against posted plaintext rather than via a hash-verifier callback,
+     which needs its own look. Flagged for a future stage, not touched
+     here — out of scope for a staff-login-focused stage, and touching a
+     second live authentication method same-day was judged too much
+     blast radius for one pass.
+
+     Direct-class proof against real `school_saas`/`al_hafeez_campus`
+     data (all 4 expected outcomes matched exactly: authoritative match,
+     both-fail, cross-tenant isolation, simulated drift-fallback) plus an
+     automated PHPUnit test (`tests/controllers/SiteLoginRealLoginGateTest.php`)
      proving a failed/non-matching login is unaffected and triggers zero
      new logging. **One real bug found and fixed during Task 3
      execution:** the test's first draft asserted the literal lang key
@@ -1133,9 +1190,9 @@ made.
      beyond login verification: `Db_manager` routing, `$this->db`,
      session shape, and all real (non-`tenant*`) controller methods'
      data-access behavior remain completely untouched for every tenant,
-     including tenant 25. Full whole-stage adversarial review: [pending
-     at time of writing this entry — see final review findings before
-     treating this stage as merge-ready].
+     including tenant 25 — only *which group the multi-branch loop
+     resolves to* was in scope, and only to fix the school_saas_pilot
+     short-circuit this review uncovered.
 
 5. **Phase 5 — API layer** (not yet planned, renumbered from Phase 4)
    Apply the same treatment to `api/` (112 files) — separate branch-switch

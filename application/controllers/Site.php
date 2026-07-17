@@ -100,7 +100,22 @@ class Site extends Public_Controller
             if (isset($db) && is_array($db) && count($db) > 1) {
                 $found_group = 'default';
                 foreach ($db as $group_name => $config_item) {
-                    if ($group_name === 'default') continue;
+                    // 'school_saas_pilot' is a special-purpose connection
+                    // group added by the multi-tenant migration (used by
+                    // PilotLogin and the tenant* allowlist gate), not a
+                    // real per-branch school database -- it must never be
+                    // treated as a login candidate by this loop, same as
+                    // 'default'. Discovered live (Phase 4 Stage 1 final
+                    // review, 2026-07-17): without this skip, any of the 6
+                    // real tenants whose school_saas-migrated password
+                    // snapshot still happens to match would short-circuit
+                    // here BEFORE ever reaching their own real branch_<id>
+                    // entry, silently swapping $this->db to the entire
+                    // shared, non-tenant-scoped school_saas connection
+                    // instead of their own real database -- and, for
+                    // tenant 25 specifically, meant the REAL LOGIN GATE
+                    // block below was never reached at all.
+                    if ($group_name === 'default' || $group_name === 'school_saas_pilot') continue;
                     $test_db = @$this->load->database($group_name, TRUE);
                     if ($test_db && $test_db->conn_id) {
                         $test_db->select('password');
