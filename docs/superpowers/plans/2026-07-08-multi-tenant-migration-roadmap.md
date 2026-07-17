@@ -1212,7 +1212,7 @@ made.
         actually disambiguate. Re-verified live: `hamza.ali@kics.edu.pk`
         now correctly falls through instead of resolving to `branch_25`;
         the genuine, unique tenant-25 test credential is unaffected
-        (still resolves via `school_saas` normally). 5 new unit tests
+        (still resolves via `school_saas` normally). 4 new unit tests
         added covering the ambiguity check (shared-across-2-tenants,
         shared-across-5-tenants matching the real `hamza.ali` shape,
         same-email-different-password non-ambiguity, and email-scoping
