@@ -708,8 +708,10 @@ made.
      controllers (`PilotStudents`, `PilotLogin`, `PilotClasses`, ...) are
      an unauthenticated proof harness — anyone can call
      `login_as/<any-id>` and select any tenant with data. They must be
-     removed or gated behind a real auth check before Phase 5's cutover."
-     Second, the same section's note that "this credential must be
+     removed or gated behind a real auth check before Phase 4's cutover."
+     (Renumbered 2026-07-16 — see Phase 4's entry above; "cutover" always
+     meant this phase, not the now-separate Phase 6 "onboard additional
+     schools.") Second, the same section's note that "this credential must be
      rotated or the test restructured to avoid a committed working login
      before any non-local deployment, at the same time the broader
      `Pilot*` removal/gating happens" (referring to the
@@ -806,17 +808,19 @@ made.
      intended for any real deployment, still carrying the same
      `tenant_id`-in-hidden-form-field pattern and the same lack of any
      real authentication scheme beyond "check a staff password against
-     `school_saas_pilot`." The roadmap's Phase 5 guidance ("must be
-     removed or gated behind a real auth check before Phase 5's
-     cutover") is now satisfied via the environment gate, not by
-     removing the harness outright — an explicit choice to keep the
-     harness available for continued local verification work in Phases
-     3-4 rather than deleting 8 controllers this stage still finds
-     useful. That decision — gate vs. delete — should be revisited if
-     and when Phase 5 cutover planning actually begins, at which point
-     the harness's ongoing value (if any) should be weighed against the
-     residual risk of shipping 8 controllers whose entire design assumes
-     `ENVIRONMENT !== 'production'` is enforced correctly forever.
+     `school_saas_pilot`." The roadmap's Phase 4 guidance ("must be
+     removed or gated behind a real auth check before Phase 4's
+     cutover" — renumbered 2026-07-16, was "Phase 5") is now satisfied via
+     the environment gate, not by removing the harness outright — an
+     explicit choice to keep the harness available for continued local
+     verification work in Phase 3 and Phase 4's earlier, lower-risk
+     sub-stages, rather than deleting 8 controllers this stage still finds
+     useful. That decision — gate vs. delete — should be revisited as
+     later Phase 4 stages (now actually underway, starting with Stage 1's
+     real login verification cutover) touch real data access, at which
+     point the harness's ongoing value (if any) should be weighed against
+     the residual risk of shipping 8 controllers whose entire design
+     assumes `ENVIRONMENT !== 'production'` is enforced correctly forever.
 
    - **Stage 9 — Sixth real controller retrofit (Classes)** — ✅ complete
      (2026-07-14, plan:
@@ -922,7 +926,8 @@ made.
      where `school_saas` had only 39 of the real app's 193 tables — any
      future module referencing an unmigrated table would hard-fail with
      "table doesn't exist" the moment more of the codebase queries the
-     shared schema, and any Phase 5 school that actually populates a module
+     shared schema, and any Phase 6 school (renumbered 2026-07-16, was
+     "Phase 5") that actually populates a module
      this pilot tenant doesn't use would have nowhere to land. A new,
      framework-agnostic `tools/multitenant/SchemaMirror.php` reads a source
      table's real column definitions live from `information_schema.columns`
@@ -1061,7 +1066,7 @@ made.
 
    **Renumbering note (2026-07-16):** this phase number was previously
    reserved, unplanned, for "API layer" work (see the renumbered entry
-   below, now Phase 6). This phase is new: cutting the 6 already-onboarded
+   below, now Phase 5). This phase is new: cutting the 6 already-onboarded
    schools over to treating `school_saas` as authoritative, one small,
    individually-safe sub-project at a time — user-directed
    ("production ready" push, 2026-07-16), decomposed during brainstorming
@@ -1132,11 +1137,11 @@ made.
      at time of writing this entry — see final review findings before
      treating this stage as merge-ready].
 
-6. **Phase 6 — API layer** (not yet planned, renumbered from Phase 4)
+5. **Phase 5 — API layer** (not yet planned, renumbered from Phase 4)
    Apply the same treatment to `api/` (112 files) — separate branch-switch
    logic today, needs its own tenant-scoping pass.
 
-7. **Phase 7 — Onboard additional schools** (not yet planned, renumbered
+6. **Phase 6 — Onboard additional schools** (not yet planned, renumbered
    from "Phase 5 — Migrate remaining schools + cutover")
    Using the now-battle-tested merge tool from Phase 1, onboard any school
    not among the current 6 into `school_saas`, one at a time, validating
@@ -1172,8 +1177,9 @@ made.
 - All `Pilot*` controllers (`PilotStudents`, `PilotLogin`, `PilotClasses`,
   ...) are an unauthenticated proof harness — anyone can call
   `login_as/<any-id>` and select any tenant with data. They must be
-  removed or gated behind a real auth check before Phase 5's cutover;
-  flagged in Stage 2's final review (2026-07-09). Stage 6 sharpens this:
+  removed or gated behind a real auth check before Phase 4's cutover
+  (renumbered 2026-07-16, was "Phase 5"); flagged in Stage 2's final
+  review (2026-07-09). Stage 6 sharpens this:
   `PilotLogin` now does real credential verification and, on success,
   reaches a real production controller (`Staff::tenantStaffList`) — its
   test suite (`tests/controllers/AdminControllerTenantGateTest.php`)
@@ -1210,8 +1216,8 @@ made.
   in all seven tables of `sql/multitenant/006_add_exam_tables.sql`: every
   FK (`session_id`, `exam_group_id`, `subject_id`, `student_id`,
   `student_session_id`, and the intra-stage exam-table links) references
-  `<table>(id)` alone. Worth a composite FK before Phase 5 migrates
-  additional schools.
+  `<table>(id)` alone. Worth a composite FK before Phase 6 (renumbered
+  2026-07-16, was "Phase 5") migrates additional schools.
   **Scope correction (Phase 3 Stage 10 research, 2026-07-14):** this
   item's original survey undercounted the true scope — it is not
   limited to 3 files / 11 tables. A full re-read of every file in
@@ -1255,7 +1261,8 @@ made.
   "non-composite in-scope" FKs is simply every sibling FK: all 225. This
   item remains open and unresolved — **225 is the real, current, live
   total**, spanning all 191 tables, awaiting a composite-FK hardening pass
-  before Phase 5 migrates additional schools.
+  before Phase 6 (renumbered 2026-07-16, was "Phase 5") migrates
+  additional schools.
 - **Merge tools have no re-run/idempotency guard** — **RESOLVED in
   Phase 3 Stage 10 (2026-07-14).** (Originally discovered 2026-07-10
   during Stage 4's final-review fix-up, when a manual verification re-run
