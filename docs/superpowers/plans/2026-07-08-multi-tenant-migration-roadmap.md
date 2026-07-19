@@ -1633,7 +1633,7 @@ database is gated on an explicit, up-front human checkpoint (see below).
 
   **Mechanism — sentinel overwrite, not deletion.** Each qualifying row is
   kept (no `DELETE`; no other column and no other table touched); only its
-  `password` column is overwritten with the literal 47-char sentinel
+  `password` column is overwritten with the literal 46-char sentinel
   `NEUTRALIZED-BY-SMART-SCHOOL-CLEANUP-DO-NOT-USE`. That string is not a
   valid bcrypt hash, so every password verification against it fails
   deterministically — the rows can never again authenticate a login
