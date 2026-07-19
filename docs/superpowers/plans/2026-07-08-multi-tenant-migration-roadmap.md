@@ -1585,6 +1585,96 @@ made.
    every school — the original 6 and any onboarded here — is fully cut
    over and confirmed stable.
 
+## Data-hygiene remediation efforts
+
+Remediation of pre-existing data-integrity problems found in the real,
+live school databases *during* the migration. These are not forward
+migration steps — they fix contamination that already existed — so they
+live here rather than under a Phase/Stage number. Non-negotiable for this
+class of work: any change that mutates existing rows in a live customer
+database is gated on an explicit, up-front human checkpoint (see below).
+
+- **Smart School staff contamination cleanup** — ✅ complete (2026-07-19,
+  plan: `2026-07-17-multi-tenant-smart-school-staff-contamination-cleanup.md`;
+  live-run audit record:
+  `.superpowers/sdd/smart-school-neutralizer-live-run-output.txt`).
+
+  **The finding.** First surfaced in Phase 4 → Stage 1 (`RealLoginGate`)
+  as a byproduct of login-verification testing (see that stage's item 2,
+  "`smart_school` template contamination"): a live cross-database audit
+  found **93 byte-identical password-hash collisions**, every one
+  involving `smart_school`, consistent with `smart_school` having been
+  used as an onboarding template that was cloned into every other real
+  school's database and never cleaned up. Stage 1 sidestepped the problem
+  for tenant 25 only and explicitly deferred a real cleanup to "its own
+  dedicated investigation." This effort *is* that investigation plus the
+  fix. It confirmed the scale live — 98 of the other 5 schools' 103 total
+  staff rows (al_hafeez 17/18, al_mateen 17/17, nafay 27/27,
+  salam_boys 20/23, salam_girls 17/18) have a matching hash inside
+  `smart_school` — and, crucially, established that `smart_school` is
+  itself a real, actively-operating school (class/section/fee-deposit
+  scale comparable to the other schools), **not** a template DB, so its
+  rows could not simply be deleted wholesale.
+
+  **The exact numbers (`smart_school.staff`, 172 rows total).** Of the
+  172, **93 collide** with another real school's staff hash. Of those 93,
+  **92 are `is_active = 0`** (dormant — invisible in the admin staff-list,
+  which filters `is_active = 1`) and **1 is `is_active = 1`** (the known
+  `hamza.ali@kics.edu.pk` vendor/support account; see Phase 4 → Stage 1
+  item 3). This run **neutralized exactly those 92** dormant colliding
+  rows. **Live count confirmed:** immediately before the mutation the
+  candidate set was re-derived fresh and was byte-for-byte identical to
+  the dry-run output the user had already reviewed (92); the live run then
+  reported `LIVE RUN: neutralized 92 row(s).` — 92 approved = 92 applied.
+  The remaining **79 rows are non-colliding**, presumed `smart_school`'s
+  own genuine staff, and were left untouched by construction (they have no
+  cross-school collision); the **1 vendor row** was left untouched,
+  excluded by construction (`is_active = 1`). 92 + 79 + 1 = 172.
+
+  **Mechanism — sentinel overwrite, not deletion.** Each qualifying row is
+  kept (no `DELETE`; no other column and no other table touched); only its
+  `password` column is overwritten with the literal 47-char sentinel
+  `NEUTRALIZED-BY-SMART-SCHOOL-CLEANUP-DO-NOT-USE`. That string is not a
+  valid bcrypt hash, so every password verification against it fails
+  deterministically — the rows can never again authenticate a login
+  (and, being `is_active = 0`, were already dormant) — while the rows
+  themselves are preserved for audit and referential integrity. Built as
+  `tools/multitenant/SmartSchoolStaffNeutralizer.php`: `dryRun()`
+  (read-only candidate selection, commit `00a4574f`) plus
+  `executeLive()` (the mutation, run inside a single InnoDB transaction,
+  commit `9396141f`), unmodified by the live-run task itself.
+
+  **Mandatory human checkpoint (honored).** This is the **first change in
+  the entire migration project to mutate existing rows in a live customer
+  database.** Per the plan, the live-run task was blocked from dispatch
+  until the user had reviewed the real dry-run output (92 candidates,
+  broken down by colliding school, all confirmed `is_active = 0`, the
+  vendor account confirmed excluded) and explicitly authorized the live
+  run. Only after that authorization did the run proceed; it then
+  re-confirmed the count fresh, took a full-table pre-run snapshot,
+  executed the transaction, and verified post-run against that snapshot
+  that **only** the 92 target rows' `password` changed (plus the
+  automatic `updated_at ON UPDATE CURRENT_TIMESTAMP` bump on those same 92
+  rows — no other column changed on any of the 172 rows), that all 79
+  genuine rows and the `hamza.ali@kics.edu.pk` row were byte-for-byte
+  unchanged, and that all 5 other real schools' `staff` tables were
+  completely unchanged (18 / 17 / 27 / 23 / 18 rows, unchanged). The
+  pre/post full-row snapshots (real staff PII + hashes) were kept only in
+  a scratch location outside the repo and deleted after verification; the
+  only committed artifact is the metadata-only live-run output (ids /
+  employee_ids / colliding-school names — no hash values).
+
+  **Still open — student-side collisions (separate, NOT addressed here).**
+  A smaller, differently-shaped issue was also found on the student side:
+  **4 collision pairs, all specifically between tenant 26 /
+  `al_mateen_campus` and tenant 30 / `smart_school`, all `is_active =
+  'yes'` on both sides** — i.e. *active*, not dormant like the staff-side
+  collisions, and confined to that one school pair. This was **explicitly
+  out of scope** for this cleanup and remains **not yet addressed**; its
+  different (active) risk shape, and the fact its counts do not cleanly
+  resolve to clean pairs, mean it needs its own dedicated investigation
+  rather than a bundled fix.
+
 ## Non-negotiables across every phase
 
 - The existing per-branch system must keep working, unmodified, for every
